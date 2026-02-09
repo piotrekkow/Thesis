@@ -3,7 +3,7 @@
 #include <cassert>
 #include <cmath>
 
-namespace geom {
+namespace utils {
 
 Vector2 Vector2::fromAngle(double radians) {
     return {std::cos(radians), std::sin(radians)};
@@ -43,4 +43,4 @@ Vector2 operator*(double s, Vector2 v) { return v * s; }
 
 Vector2 operator/(Vector2 v, double s) { return {v.dx / s, v.dy / s}; }
 
-}  // namespace geom
+}  // namespace utils

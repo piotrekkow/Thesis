@@ -14,7 +14,7 @@ class Crossing {
     Crossing& operator=(Crossing&&) = default;
 
    private:
-    geom::Position p1_;
-    geom::Position p2_;
+    utils::Position p1_;
+    utils::Position p2_;
     double width_;
 };

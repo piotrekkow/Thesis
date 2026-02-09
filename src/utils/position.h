@@ -1,6 +1,6 @@
 #pragma once
 
-namespace geom {
+namespace utils {
 
 class Vector2;
 
@@ -13,4 +13,4 @@ Position operator+(Position p, Vector2 v);
 Position operator-(Position p, Vector2 v);
 Vector2 operator-(Position a, Position b);
 
-}  // namespace geom
+}  // namespace utils

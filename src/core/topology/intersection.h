@@ -6,7 +6,7 @@
 #include "id_generator.h"
 #include "node.h"
 
-namespace geom {
+namespace utils {
 class Position;
 }
 

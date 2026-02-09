@@ -5,7 +5,6 @@
 #include "node.h"
 #include "position.h"
 
-
 Network::Network() {
     auto i1 = createIntersection();
     auto i2 = createIntersection();
@@ -24,8 +23,8 @@ std::pair<IntersectionId, NodeId> Network::createIntersection() {
     return {newIId, newNId};
 }
 
-EdgeId Network::createEdge(NodeId from, geom::Position entryPos, NodeId to,
-                           geom::Position exitPos) {
+EdgeId Network::createEdge(NodeId from, utils::Position entryPos, NodeId to,
+                           utils::Position exitPos) {
     auto newId = edgeIdGen_.next();
     edges_.emplace(newId, Edge(from, entryPos, to, exitPos));
 
@@ -36,9 +35,9 @@ EdgeId Network::createEdge(NodeId from, geom::Position entryPos, NodeId to,
 }
 
 std::pair<EdgeId, EdgeId> Network::createTwoWayEdge(NodeId n1,
-                                                    geom::Position p1,
+                                                    utils::Position p1,
                                                     NodeId n2,
-                                                    geom::Position p2) {
+                                                    utils::Position p2) {
     auto e12 = createEdge(n1, p1, n2, p2);
     auto e21 = createEdge(n2, p2, n1, p1);
     return {e12, e21};

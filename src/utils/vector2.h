@@ -1,6 +1,6 @@
 #pragma once
 
-namespace geom {
+namespace utils {
 
 struct Vector2 {
     double dx;
@@ -29,4 +29,4 @@ Vector2 operator*(Vector2 v, double s);
 Vector2 operator*(double s, Vector2 v);
 Vector2 operator/(Vector2 v, double s);
 
-}  // namespace geom
+}  // namespace utils

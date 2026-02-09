@@ -5,8 +5,8 @@
 
 class Edge {
    public:
-    Edge(NodeId from, geom::Position entryPos, NodeId to,
-         geom::Position exitPos);
+    Edge(NodeId from, utils::Position entryPos, NodeId to,
+         utils::Position exitPos);
     ~Edge() = default;
 
     Edge(const Edge&) = delete;

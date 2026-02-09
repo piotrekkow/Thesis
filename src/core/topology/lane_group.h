@@ -6,7 +6,7 @@
 
 class LaneGroup {
    public:
-    LaneGroup(geom::Position position, double heading,
+    LaneGroup(utils::Position position, double heading,
               std::vector<double> laneWidths = {})
         : position_(position), heading_(heading), laneWidths_(laneWidths) {}
     ~LaneGroup() = default;
@@ -17,12 +17,12 @@ class LaneGroup {
     LaneGroup(LaneGroup&&) = default;
     LaneGroup& operator=(LaneGroup&&) = default;
 
-    geom::Position position() const { return position_; }
+    utils::Position position() const { return position_; }
     double heading() const { return heading_; }
     size_t laneCount() const { return laneWidths_.size(); }
 
    private:
-    geom::Position
+    utils::Position
         position_;  // position relative to position of node exit feeds into
     double heading_;
 

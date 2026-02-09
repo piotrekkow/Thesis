@@ -17,10 +17,10 @@ class Network {
     ~Network() = default;
 
     std::pair<IntersectionId, NodeId> createIntersection();
-    EdgeId createEdge(NodeId from, geom::Position entryPos, NodeId to,
-                      geom::Position exitPos);
-    std::pair<EdgeId, EdgeId> createTwoWayEdge(NodeId n1, geom::Position p1,
-                                               NodeId n2, geom::Position p2);
+    EdgeId createEdge(NodeId from, utils::Position entryPos, NodeId to,
+                      utils::Position exitPos);
+    std::pair<EdgeId, EdgeId> createTwoWayEdge(NodeId n1, utils::Position p1,
+                                               NodeId n2, utils::Position p2);
 
     Edge& edge(EdgeId id) { return edges_.at(id); }
     Intersection& intersection(IntersectionId id) {

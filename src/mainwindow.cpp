@@ -10,7 +10,6 @@
 #include "network_view.h"
 #include "node.h"
 
-
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     network_ = new Network();
 
@@ -36,8 +35,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     //     for (const auto& [_, edge] : intersection.structure().edges()) {
     //         QPointF edgePos(edge.position().x, edge.position().y);
-    //         geom::Position headingPos(edge.position() +
-    //                                   geom::Vector2::fromAngle(edge.heading())
+    //         utils::Position headingPos(edge.position() +
+    //                                   utils::Vector2::fromAngle(edge.heading())
     //                                   *
     //                                       10);
     //         QPointF edgeHeading(headingPos.x, headingPos.y);

@@ -38,12 +38,12 @@ bool validateLaneSharing(const std::vector<Movement>& movements,
 double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
     Edge& fromEdge = network.edge(from);
     Edge& toEdge = network.edge(to);
-    geom::Position fromPos = fromEdge.exit().position();
-    geom::Position toPos = toEdge.entry().position();
+    utils::Position fromPos = fromEdge.exit().position();
+    utils::Position toPos = toEdge.entry().position();
 
-    geom::Vector2 movementDirection = toPos - fromPos;
-    geom::Vector2 fromDirection =
-        geom::Vector2::fromAngle(fromEdge.exit().heading());
+    utils::Vector2 movementDirection = toPos - fromPos;
+    utils::Vector2 fromDirection =
+        utils::Vector2::fromAngle(fromEdge.exit().heading());
 
     return fromDirection.angleTo(movementDirection);
 }
