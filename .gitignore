@@ -1,0 +1,6 @@
+.clang-format
+CMakeLists.txt.user
+*.ts
+/build/
+/.vscode/
+/.cache/
