@@ -17,8 +17,12 @@ add_executable(Thesis
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
-    src/core/topology/network.cpp
-    src/core/topology/network.h
+
+    src/debug_sink.h
+    src/debug_sink.cpp
+
+    src/core/network.cpp
+    src/core/network.h
     src/core/topology/intersection.h
     src/core/topology/intersection.cpp
     src/core/topology/node.h
@@ -31,6 +35,10 @@ add_executable(Thesis
     src/utils/vector2.cpp
     src/utils/position.h
     src/utils/position.cpp
+    src/utils/polyline.h
+    src/utils/polyline.cpp
+    src/utils/line.h
+    src/utils/line.cpp
     src/ui/network_view.h
     src/ui/network_view.cpp
     src/ui/network_scene.h
@@ -39,6 +47,7 @@ add_executable(Thesis
     src/core/topology/edge.cpp
     src/core/topology/lane.h
     src/core/topology/lane_group.h
+    src/core/topology/lane_group.cpp
     src/core/topology/movement/movement.h
     src/core/topology/movement/movement_geometry_spec.h
     src/core/topology/movement/lane_range.h
@@ -46,6 +55,15 @@ add_executable(Thesis
     src/core/topology/movement/movement_structure.h
     src/core/topology/movement/movement_structure.cpp
     src/core/topology/crossing.h
+    src/core/geometry/edge.h
+    src/core/geometry/edge.cpp
+    src/core/geometry/node.h
+    src/core/geometry/geometry.h
+    src/core/geometry/movement.h
+    src/core/geometry/calculators/edge_calculator.h
+    src/core/geometry/calculators/edge_calculator.cpp
+    src/core/geometry/calculators/movement_calculator.h
+    src/core/geometry/calculators/movement_calculator.cpp
 )
 
 target_link_libraries(Thesis PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
@@ -55,8 +73,6 @@ target_include_directories(Thesis PRIVATE
     ${CMAKE_SOURCE_DIR}/src/utils
     ${CMAKE_SOURCE_DIR}/src/ui
     ${CMAKE_SOURCE_DIR}/src/core
-    ${CMAKE_SOURCE_DIR}/src/core/topology
-    ${CMAKE_SOURCE_DIR}/src/core/topology/movement
 )
 
 if(WIN32)

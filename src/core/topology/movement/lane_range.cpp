@@ -1,7 +1,9 @@
-#include "lane_range.h"
+#include "topology/movement/lane_range.h"
 
 #include <algorithm>
 #include <stdexcept>
+
+namespace topology {
 
 LaneRange::LaneRange(int single) : first_(single), last_(single) {}
 
@@ -15,3 +17,5 @@ size_t LaneRange::sharedLaneCount(const LaneRange& other) const {
     size_t overlapLast = std::min(last_, other.last_);
     return overlapLast - overlapFirst + 1;
 }
+
+}  // namespace topology

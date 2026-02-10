@@ -3,13 +3,14 @@
 #include <optional>
 #include <vector>
 
-#include "crossing.h"
 #include "id.h"
 #include "id_generator.h"
-#include "movement_structure.h"
-
+#include "topology/crossing.h"
+#include "topology/movement/movement_structure.h"
 
 class Network;
+
+namespace topology {
 
 class Node {
    public:
@@ -43,3 +44,5 @@ class Node {
     std::unordered_map<CrossingId, Crossing> crossings_;
     ScopedIdGenerator<CrossingTag, NodeId> crossingIdGen_;
 };
+
+}  // namespace topology

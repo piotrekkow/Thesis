@@ -43,4 +43,6 @@ Vector2 operator*(double s, Vector2 v) { return v * s; }
 
 Vector2 operator/(Vector2 v, double s) { return {v.dx / s, v.dy / s}; }
 
+Vector2 operator-(Vector2 v) { return {-v.dx, -v.dy}; }
+
 }  // namespace utils

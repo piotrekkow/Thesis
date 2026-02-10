@@ -1,0 +1,2115 @@
+﻿
+////////////////////////////////////////////////////////////
+//// FILE: core\geometry\calculators\edge_calculator.cpp
+////////////////////////////////////////////////////////////
+#include "geometry/calculators/edge_calculator.h"
+
+#include <numbers>
+
+#include "geometry/edge.h"
+#include "network.h"
+#include "topology/edge.h"
+#include "utils/position.h"
+#include "utils/vector2.h"
+
+namespace geometry {
+
+Edge EdgeCalculator::compute(const Network& network, EdgeId id) {
+    const topology::Edge& topo = network.edge(id);
+    const auto& x = topo.exit();
+    const auto& e = topo.entry();
+
+    auto xLines =
+        laneUnitBoundVectors(x.position(), x.heading(), x.laneWidths());
+    auto eLines =
+        laneUnitBoundVectors(e.position(), e.heading(), e.laneWidths());
+
+    return Edge(xLines, eLines);
+}
+
+std::vector<utils::Line> EdgeCalculator::laneUnitBoundVectors(
+    utils::Position handle, double heading, std::vector<double> widths) {
+    std::vector<utils::Line> positions;
+
+    if (widths.empty()) {
+        return positions;
+    }
+
+    utils::Vector2 perpendicular =
+        utils::Vector2::fromAngle(heading - std::numbers::pi / 2.0);
+    double totalWidth = 0;
+    for (size_t i = 0; i < widths.size(); i++) {
+        double widthNow = totalWidth + widths[i] / 2.0;
+        utils::Position p1 = handle - perpendicular * widthNow;
+        utils::Position p2 = p1 + utils::Vector2::fromAngle(heading);
+        positions.push_back(utils::Line(p1, p2));
+        totalWidth += widths[i];
+    }
+
+    return positions;
+}
+
+}  // namespace geometry
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\geometry\calculators\edge_calculator.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include "geometry/edge.h"
+#include "id.h"
+
+class Network;
+
+namespace geometry {
+
+class EdgeCalculator {
+   public:
+    static Edge compute(const Network& network, EdgeId id);
+
+   private:
+    static std::vector<utils::Line> laneUnitBoundVectors(
+        utils::Position handle, double heading, std::vector<double> widths);
+};
+
+}  // namespace geometry
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\geometry\calculators\movement_calculator.cpp
+////////////////////////////////////////////////////////////
+#include "geometry/calculators/movement_calculator.h"
+
+#include <utility>
+
+#include "geometry/calculators/edge_calculator.h"
+#include "geometry/edge.h"
+#include "geometry/movement.h"
+#include "network.h"
+#include "polyline.h"
+#include "position.h"
+#include "topology/movement/lane_range.h"
+#include "topology/movement/movement.h"
+#include "topology/movement/movement_geometry_spec.h"
+#include "topology/movement/movement_structure.h"
+#include "topology/node.h"
+
+namespace geometry {
+namespace {
+utils::Position offsetAnchor(const std::vector<utils::Line>& lanes,
+                             size_t indexA, size_t indexB, double offset,
+                             bool forward) {
+    const utils::Line& ref = lanes[indexA];
+
+    utils::Vector2 dir = (ref.p2() - ref.p1()).normalized();
+    double signedOffset = forward ? offset : -offset;
+
+    utils::Position p = ref.p1() + dir * signedOffset;
+
+    // multi-lane: shift toward center between fringe lanes
+    if (indexA != indexB) {
+        utils::Vector2 lateral =
+            (lanes[indexB].p1() - lanes[indexA].p1()) / 2.0;
+        p = p + lateral;
+    }
+
+    return p;
+}
+
+utils::Vector2 mitreDirection(utils::Position prev, utils::Position corner,
+                              utils::Position next) {
+    utils::Vector2 v1 = (corner - prev).normalized();
+    utils::Vector2 v2 = (next - corner).normalized();
+
+    utils::Vector2 bisector = v1 + v2;
+
+    if (bisector.isZero()) return {-v1.dy, v1.dx};
+
+    return bisector.normalized();
+}
+
+utils::Position intersectRayWithLine(utils::Position origin, utils::Vector2 dir,
+                                     const utils::Line& line) {
+    utils::Line ray(origin, origin + dir);
+    utils::Position out;
+    if (!ray.intersection(line, out))
+        throw std::runtime_error("Mitre intersection failed");
+    return out;
+}
+
+utils::Polyline buildLinePath(const utils::Line& entryLine,
+                              const utils::Line& exitLine,
+                              utils::Position entryMitreAnchor,
+                              utils::Position exitMitreAnchor) {
+    utils::Polyline p;
+    p.addPosition(entryLine.p1());
+
+    auto dirEntry =
+        mitreDirection(entryLine.p1(), entryMitreAnchor, exitMitreAnchor);
+
+    auto entryMitre =
+        intersectRayWithLine(entryMitreAnchor, dirEntry, entryLine);
+
+    p.addPosition(entryMitre);
+
+    auto dirExit =
+        mitreDirection(entryMitreAnchor, exitMitreAnchor, exitLine.p1());
+
+    auto exitMitre = intersectRayWithLine(exitMitreAnchor, dirExit, exitLine);
+
+    p.addPosition(exitMitre);
+    p.addPosition(exitLine.p1());
+
+    return p;
+}
+
+std::vector<std::pair<size_t, size_t>> pathPairs(
+    Edge fromEdge, const topology::LaneRange& laneRange, Edge toEdge) {
+    std::vector<std::pair<size_t, size_t>> pairs;
+    // leftmost entry to leftmost exit
+    pairs.push_back({laneRange.first(), 0});
+    // rightmost entry to rightmost exit
+    pairs.push_back({laneRange.last(), toEdge.exits().size() - 1});
+    // the rest are not considered because only the fringe connections affect
+    // the minimum intergreen time
+    return pairs;
+}
+
+std::vector<utils::Polyline> calculatePaths(
+    Edge fromEdge, const topology::LaneRange& laneRange, Edge toEdge,
+    const topology::MovementGeometrySpec& geometrySpec) {
+    std::vector<utils::Polyline> movementPaths;
+    auto pairs = pathPairs(fromEdge, laneRange, toEdge);
+
+    for (auto [entryIdx, exitIdx] : pairs) {
+        auto entryAnchor = offsetAnchor(fromEdge.entries(), entryIdx,
+                                        /* fringe other */ laneRange.last(),
+                                        geometrySpec.entryOffset, true);
+
+        auto exitAnchor =
+            offsetAnchor(toEdge.exits(), exitIdx,
+                         /* fringe other */ 0, geometrySpec.exitOffset, false);
+
+        movementPaths.push_back(buildLinePath(fromEdge.entries()[entryIdx],
+                                              toEdge.exits()[exitIdx],
+                                              entryAnchor, exitAnchor));
+    }
+
+    return movementPaths;
+}
+
+}  // namespace
+
+std::unordered_map<EdgeId, Movement> MovementCalculator::compute(
+    const Network& network, EdgeId fromId, NodeId nodeId) {
+    if (!network.node(nodeId).movementStructure().has_value()) {
+        std::ostringstream msg;
+        msg << "Node " << nodeId
+            << " has no movement structure for geometry calculation.";
+        throw std::runtime_error(msg.str());
+    }
+
+    const auto& movementMap =
+        network.node(nodeId).movementStructure().value().movements();
+
+    auto it = movementMap.find(fromId);
+    if (it == movementMap.end()) {
+        return {};  // Return empty map if no movements for this edge
+    }
+
+    const std::vector<topology::Movement>& movements = it->second;
+
+    std::unordered_map<EdgeId, Movement> result;
+    for (const auto& m : movements) {
+        auto paths = calculatePaths(
+            geometry::EdgeCalculator::compute(network, fromId), m.laneRange(),
+            geometry::EdgeCalculator::compute(network, m.toEdge()),
+            m.geometrySpec());
+
+        result.insert({m.toEdge(), Movement(std::move(paths))});
+    }
+
+    return result;
+}
+}  // namespace geometry
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\geometry\calculators\movement_calculator.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <unordered_map>
+
+#include "geometry/movement.h"
+#include "id.h"
+
+class Network;
+
+namespace geometry {
+
+class MovementCalculator {
+   public:
+    // @return movement geometry for a given exit edge
+    static std::unordered_map<EdgeId, Movement> compute(const Network& network,
+                                                        EdgeId fromId,
+                                                        NodeId nodeId);
+};
+
+}  // namespace geometry
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\geometry\edge.cpp
+////////////////////////////////////////////////////////////
+#include "geometry/edge.h"
+
+namespace geometry {
+
+Edge::Edge(std::vector<utils::Line> exits, std::vector<utils::Line> entries)
+    : exits_(std::move(exits)), entries_(std::move(entries)) {}
+
+}  // namespace geometry
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\geometry\edge.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <vector>
+
+#include "id.h"
+#include "utils/line.h"
+#include "utils/position.h"
+#include "utils/vector2.h"
+
+namespace geometry {
+
+class Edge {
+   public:
+    Edge(std::vector<utils::Line> exits, std::vector<utils::Line> entries);
+
+    const std::vector<utils::Line>& exits() const { return exits_; }
+    const std::vector<utils::Line>& entries() const { return entries_; }
+
+   private:
+    std::vector<utils::Line> exits_;
+    std::vector<utils::Line> entries_;
+};
+
+}  // namespace geometry
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\geometry\geometry.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <unordered_map>
+
+#include "geometry/edge.h"
+#include "geometry/node.h"
+#include "id.h"
+
+class Network;
+
+namespace geometry {
+
+class Geometry {
+   public:
+    explicit Geometry(const Network& network);
+
+    void calculateEdge(EdgeId id);
+    void calculateNode(NodeId id);
+
+    const Edge& edgeGeometry(EdgeId id) const { return edgeGeometries_.at(id); }
+    const Node& nodeGeometry(NodeId id) const { return nodeGeometries_.at(id); }
+
+   private:
+    const Network& network_;
+    std::unordered_map<EdgeId, Edge> edgeGeometries_;
+    std::unordered_map<NodeId, Node> nodeGeometries_;
+};
+
+}  // namespace geometry
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\geometry\movement.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include "polyline.h"
+namespace geometry {
+
+class Movement {
+   public:
+    explicit Movement(std::vector<utils::Polyline> paths)
+        : paths_(std::move(paths)) {}
+
+    const std::vector<utils::Polyline>& paths() const { return paths_; }
+
+   private:
+    std::vector<utils::Polyline> paths_;
+};
+
+}  // namespace geometry
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\geometry\node.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+namespace geometry {
+
+class Node {};
+
+}  // namespace geometry
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\id.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <concepts>
+#include <cstdint>
+#include <limits>
+
+// Forward declaration
+template <typename Tag, typename Payload = void>
+class Id;
+
+template <typename Tag>
+class GlobalIdGenerator;
+
+template <typename Tag, typename Payload>
+class ScopedIdGenerator;
+
+// Concept
+template <typename T>
+concept IdType = requires(const T& id) {
+    { id.valid() } -> std::convertible_to<bool>;
+    { id.value() } -> std::convertible_to<uint32_t>;
+};
+
+// Primary template: scoped ID
+template <typename Tag, IdType Payload>
+class Id<Tag, Payload> {
+   public:
+    using value_type = uint32_t;
+
+    friend class ScopedIdGenerator<Tag, Payload>;
+
+    constexpr bool valid() const {
+        return value_ != invalid() && payload_.valid();
+    }
+
+    constexpr value_type value() const { return value_; }
+    constexpr const Payload& payload() const { return payload_; }
+
+    friend constexpr bool operator==(const Id&, const Id&) = default;
+
+   private:
+    constexpr Id() : value_(invalid()), payload_{} {}
+    explicit constexpr Id(Payload payload, value_type value)
+        : value_(value), payload_(payload) {}
+
+    static constexpr value_type invalid() {
+        return std::numeric_limits<value_type>::max();
+    }
+
+    value_type value_;
+    Payload payload_;
+};
+
+// Specialization: global ID
+template <typename Tag>
+class Id<Tag, void> {
+   public:
+    using value_type = uint32_t;
+
+    friend class GlobalIdGenerator<Tag>;
+
+    constexpr bool valid() const { return value_ != invalid(); }
+
+    constexpr value_type value() const { return value_; }
+
+    friend constexpr bool operator==(const Id&, const Id&) = default;
+
+   private:
+    constexpr Id() : value_(invalid()) {}
+    explicit constexpr Id(value_type value) : value_(value) {}
+
+    static constexpr value_type invalid() {
+        return std::numeric_limits<value_type>::max();
+    }
+
+    value_type value_;
+};
+
+// logging
+
+#include <QDebug>
+#include <cctype>
+#include <ostream>
+#include <sstream>
+#include <string_view>
+
+template <typename Tag>
+char tagChar() {
+    std::string_view name = typeid(Tag).name();
+    if (name.empty()) return '?';
+
+    // Handle MSVC: skip "struct " or "class "
+    if (name.starts_with("struct ")) {
+        name.remove_prefix(7);
+    } else if (name.starts_with("class ")) {
+        name.remove_prefix(6);
+    }
+
+    // Handle GCC/Clang: skip digit prefixes (mangled names like "7RoadTag")
+    while (!name.empty() && std::isdigit(static_cast<unsigned char>(name[0]))) {
+        name.remove_prefix(1);
+    }
+
+    return name.empty() ? '?' : std::tolower(name[0]);
+}
+
+// Base case: global ID
+template <typename Tag>
+void print_full_id(std::ostream& os, const Id<Tag, void>& id, char sep = '-') {
+    if (!id.valid()) {
+        os << "<invalid>";
+        return;
+    }
+    os << tagChar<Tag>() << id.value();
+}
+
+// Recursive case: scoped ID
+template <typename Tag, IdType Payload>
+void print_full_id(std::ostream& os, const Id<Tag, Payload>& id) {
+    if (!id.valid()) {
+        os << "<invalid>";
+        return;
+    }
+
+    // First print the parent scope
+    print_full_id(os, id.payload());
+
+    // Then this scope
+    os << tagChar<Tag>() << id.value();
+}
+
+template <typename Tag, typename Payload>
+std::ostream& operator<<(std::ostream& os, const Id<Tag, Payload>& id) {
+    print_full_id(os, id);
+    return os;
+}
+
+template <typename Tag, typename Payload>
+inline QDebug operator<<(QDebug debug, const Id<Tag, Payload>& id) {
+    QDebugStateSaver saver(debug);
+    std::stringstream ss;
+    print_full_id(ss, id);
+    debug.nospace() << ss.str().c_str();
+    return debug;
+}
+
+namespace std {
+template <typename Tag, typename Payload>
+struct hash<Id<Tag, Payload>> {
+    size_t operator()(const Id<Tag, Payload>& id) const {
+        if constexpr (std::is_same_v<Payload, void>) {
+            return std::hash<uint32_t>{}(id.value());
+        } else {
+            size_t h1 = std::hash<Payload>{}(id.payload());
+            size_t h2 = std::hash<uint32_t>{}(id.value());
+            return h1 ^ (h2 << 1);
+        }
+    }
+};
+}  // namespace std
+
+struct EdgeTag {};
+struct NodeTag {};
+struct IntersectionTag {};
+struct CrossingTag {};
+
+using IntersectionId = Id<IntersectionTag, void>;
+using EdgeId = Id<EdgeTag, void>;
+using NodeId = Id<NodeTag, IntersectionId>;
+using CrossingId = Id<CrossingTag, NodeId>;
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\id_generator.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include "id.h"
+
+template <typename Tag>
+class GlobalIdGenerator {
+   public:
+    using IdType = Id<Tag, void>;
+
+    GlobalIdGenerator() = default;
+
+    GlobalIdGenerator(const GlobalIdGenerator&) = delete;
+    GlobalIdGenerator& operator=(const GlobalIdGenerator&) = delete;
+
+    GlobalIdGenerator(GlobalIdGenerator&&) = default;
+    GlobalIdGenerator& operator=(GlobalIdGenerator&&) = default;
+
+    IdType next() { return IdType{next_++}; }
+
+   private:
+    uint32_t next_ = 0;
+};
+
+template <typename Tag, typename Payload>
+class ScopedIdGenerator {
+   public:
+    using IdType = Id<Tag, Payload>;
+
+    ScopedIdGenerator() = default;
+
+    ScopedIdGenerator(const ScopedIdGenerator&) = delete;
+    ScopedIdGenerator& operator=(const ScopedIdGenerator&) = delete;
+
+    ScopedIdGenerator(ScopedIdGenerator&&) = default;
+    ScopedIdGenerator& operator=(ScopedIdGenerator&&) = default;
+
+    IdType next(const Payload& payload) { return IdType{payload, next_++}; }
+
+   private:
+    uint32_t next_ = 0;
+};
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\network.cpp
+////////////////////////////////////////////////////////////
+#include "network.h"
+
+#include "topology/movement/movement_geometry_spec.h"
+#include "topology/movement/movement_structure.h"
+#include "topology/node.h"
+
+Network::Network() {
+    auto i1 = createIntersection();
+    auto i2 = createIntersection();
+    auto i3 = createIntersection();
+    auto i4 = createIntersection();
+
+    auto e12 = createTwoWayEdge(i1.second, {20, 10}, i2.second, {100, 50});
+    auto e13 = createTwoWayEdge(i1.second, {-20, -20}, i3.second, {-100, -100});
+    auto e14 = createTwoWayEdge(i1.second, {20, -20}, i4.second, {100, -100});
+
+    edge(e12.first).entry().createLanes(1);
+    edge(e12.first).exit().createLanes(2);
+    edge(e12.second).entry().createLanes(3);
+    edge(e12.second).exit().createLanes(2);
+    edge(e13.first).entry().createLanes(1);
+    edge(e13.first).exit().createLanes(4);
+    edge(e13.second).entry().createLanes(3);
+    edge(e13.second).exit().createLanes(2);
+    edge(e14.first).entry().createLanes(1);
+    edge(e14.first).exit().createLanes(2);
+    edge(e14.second).entry().createLanes(3);
+    edge(e14.second).exit().createLanes(2);
+
+    auto& n1 = node(i1.second);
+    auto builder = n1.createMovementBuilder(*this);
+    builder.addMovement(e12.second, e13.first, {0, 1})
+        .addMovement(e12.second, e14.first, {2},
+                     topology::MovementGeometrySpec::line(7.0, 14.0));
+
+    n1.setMovementStructure(builder.build());
+}
+
+std::pair<IntersectionId, NodeId> Network::createIntersection() {
+    auto newIId = intersectionIdGen_.next();
+    intersections_.emplace(newIId, topology::Intersection(newIId));
+    auto newNId = intersection(newIId).createNode();
+    return {newIId, newNId};
+}
+
+EdgeId Network::createEdge(NodeId from, utils::Position exitPos, NodeId to,
+                           utils::Position entryPos) {
+    auto newId = edgeIdGen_.next();
+    edges_.emplace(newId, topology::Edge(from, exitPos, to, entryPos));
+
+    node(to).addIncomingEdge(newId);
+    node(from).addOutgoingEdge(newId);
+
+    return newId;
+}
+
+std::pair<EdgeId, EdgeId> Network::createTwoWayEdge(NodeId n1,
+                                                    utils::Position p1,
+                                                    NodeId n2,
+                                                    utils::Position p2) {
+    auto e12 = createEdge(n1, p1, n2, p2);
+    auto e21 = createEdge(n2, p2, n1, p1);
+    return {e12, e21};
+}
+
+topology::Node& Network::node(NodeId id) {
+    topology::Intersection& intersection = intersections_.at(id.payload());
+    return intersection.node(id);
+}
+
+const topology::Node& Network::node(NodeId id) const {
+    const topology::Intersection& intersection =
+        intersections_.at(id.payload());
+    return intersection.node(id);
+}
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\network.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <unordered_map>
+#include <utility>
+
+#include "id.h"
+#include "id_generator.h"
+#include "position.h"
+#include "topology/edge.h"
+#include "topology/intersection.h"
+
+namespace topology {
+class Node;
+}
+
+class Network {
+   public:
+    Network();
+    ~Network() = default;
+
+    std::pair<IntersectionId, NodeId> createIntersection();
+    EdgeId createEdge(NodeId from, utils::Position exitPos, NodeId to,
+                      utils::Position entryPos);
+    std::pair<EdgeId, EdgeId> createTwoWayEdge(NodeId n1, utils::Position p1,
+                                               NodeId n2, utils::Position p2);
+
+    topology::Edge& edge(EdgeId id) { return edges_.at(id); }
+    topology::Intersection& intersection(IntersectionId id) {
+        return intersections_.at(id);
+    }
+    topology::Node& node(NodeId id);
+
+    const topology::Edge& edge(EdgeId id) const { return edges_.at(id); }
+    const topology::Intersection& intersection(IntersectionId id) const {
+        return intersections_.at(id);
+    }
+    const topology::Node& node(NodeId id) const;
+
+    const std::unordered_map<EdgeId, topology::Edge>& edges() const {
+        return edges_;
+    }
+    const std::unordered_map<IntersectionId, topology::Intersection>&
+    intersections() const {
+        return intersections_;
+    }
+
+   private:
+    std::unordered_map<EdgeId, topology::Edge> edges_;
+    std::unordered_map<IntersectionId, topology::Intersection> intersections_;
+
+    GlobalIdGenerator<EdgeTag> edgeIdGen_;
+    GlobalIdGenerator<IntersectionTag> intersectionIdGen_;
+};
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\crossing.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include "position.h"
+
+namespace topology {
+
+class Crossing {
+   public:
+    Crossing();
+    ~Crossing() = default;
+
+    Crossing(const Crossing&) = delete;
+    Crossing& operator=(const Crossing&) = delete;
+
+    Crossing(Crossing&&) = default;
+    Crossing& operator=(Crossing&&) = default;
+
+   private:
+    utils::Position p1_;
+    utils::Position p2_;
+    double width_;
+};
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\edge.cpp
+////////////////////////////////////////////////////////////
+#include "topology/edge.h"
+
+#include "position.h"
+#include "vector2.h"
+
+namespace topology {
+Edge::Edge(NodeId from, utils::Position exitPos, NodeId to,
+           utils::Position entryPos)
+    : from_(from),
+      to_(to),
+      exit_(exitPos, (entryPos - exitPos).angle()),
+      entry_(entryPos, (entryPos - exitPos).angle()) {}
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\edge.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include "id.h"
+#include "topology/lane_group.h"
+
+namespace topology {
+class Edge {
+   public:
+    Edge(NodeId from, utils::Position exitPos, NodeId to,
+         utils::Position entryPos);
+    ~Edge() = default;
+
+    Edge(const Edge&) = delete;
+    Edge& operator=(const Edge&) = delete;
+
+    Edge(Edge&&) = default;
+    Edge& operator=(Edge&&) = default;
+
+    NodeId from() const { return from_; }
+    NodeId to() const { return to_; }
+
+    LaneGroup& exit() { return exit_; }
+    LaneGroup& entry() { return entry_; }
+
+    const LaneGroup& exit() const { return exit_; }
+    const LaneGroup& entry() const { return entry_; }
+
+   private:
+    NodeId from_;
+    NodeId to_;
+
+    LaneGroup exit_;
+    LaneGroup entry_;
+};
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\intersection.cpp
+////////////////////////////////////////////////////////////
+#include "topology/intersection.h"
+
+namespace topology {
+
+NodeId Intersection::createNode() {
+    auto newId = nodeIdGen_.next(id_);
+    nodes_.emplace(newId, Node(newId));
+    return newId;
+}
+
+}  // namespace topology
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\intersection.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <unordered_map>
+
+#include "id.h"
+#include "id_generator.h"
+#include "topology/node.h"
+
+namespace utils {
+class Position;
+}
+
+namespace topology {
+
+class Intersection {
+   public:
+    explicit Intersection(IntersectionId id) : id_(id) {}
+    ~Intersection() = default;
+
+    Intersection(const Intersection&) = delete;
+    Intersection& operator=(const Intersection&) = delete;
+
+    Intersection(Intersection&&) = default;
+    Intersection& operator=(Intersection&&) = default;
+
+    NodeId createNode();
+
+    Node& node(NodeId id) { return nodes_.at(id); }
+    const Node& node(NodeId id) const { return nodes_.at(id); }
+    const std::unordered_map<NodeId, Node>& nodes() const { return nodes_; }
+
+   private:
+    IntersectionId id_;  // used only to create a scope for generated node ids
+    std::unordered_map<NodeId, Node> nodes_;
+    ScopedIdGenerator<NodeTag, IntersectionId> nodeIdGen_;
+};
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\lane.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+namespace topology {
+
+class Lane {
+   public:
+    Lane(double width) : width_(width) {}
+
+    double width() const { return width_; }
+
+   private:
+    double width_;
+};
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\lane_group.cpp
+////////////////////////////////////////////////////////////
+#include "topology/lane_group.h"
+
+namespace topology {
+
+void LaneGroup::createLane(double width) { laneWidths_.push_back(width); }
+
+void LaneGroup::createLanes(int count, double width) {
+    for (int i = 0; i < count; i++) {
+        createLane(width);
+    }
+}
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\lane_group.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <vector>
+
+#include "position.h"
+
+namespace topology {
+
+class LaneGroup {
+   public:
+    LaneGroup(utils::Position position, double heading,
+              std::vector<double> laneWidths = {})
+        : position_(position), heading_(heading), laneWidths_(laneWidths) {}
+    ~LaneGroup() = default;
+
+    LaneGroup(const LaneGroup&) = delete;
+    LaneGroup& operator=(const LaneGroup&) = delete;
+
+    LaneGroup(LaneGroup&&) = default;
+    LaneGroup& operator=(LaneGroup&&) = default;
+
+    utils::Position position() const { return position_; }
+    double heading() const { return heading_; }
+    size_t laneCount() const { return laneWidths_.size(); }
+
+    const std::vector<double>& laneWidths() const { return laneWidths_; }
+    void createLane(double width = 3.5);
+    void createLanes(int count, double width = 3.5);
+
+   private:
+    utils::Position
+        position_;  // position relative to position of node exit feeds into
+    double heading_;
+
+    std::vector<double> laneWidths_;
+};
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\movement\lane_range.cpp
+////////////////////////////////////////////////////////////
+#include "topology/movement/lane_range.h"
+
+#include <algorithm>
+#include <stdexcept>
+
+namespace topology {
+
+LaneRange::LaneRange(int single) : first_(single), last_(single) {}
+
+LaneRange::LaneRange(int f, int l) : first_(f), last_(l) {
+    if (f > l) throw std::invalid_argument("Invalid lane range");
+}
+
+size_t LaneRange::sharedLaneCount(const LaneRange& other) const {
+    if (!overlaps(other)) return 0;
+    size_t overlapFirst = std::max(first_, other.first_);
+    size_t overlapLast = std::min(last_, other.last_);
+    return overlapLast - overlapFirst + 1;
+}
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\movement\lane_range.h
+////////////////////////////////////////////////////////////
+#pragma once
+#include <cstddef>
+
+namespace topology {
+
+class LaneRange {
+   public:
+    LaneRange(int single);
+    LaneRange(int f, int l);
+
+    size_t count() const { return last_ - first_ + 1; }
+    bool contains(int lane) const { return lane >= first_ && lane <= last_; }
+    size_t sharedLaneCount(const LaneRange& other) const;
+    size_t first() const { return first_; }
+    size_t last() const { return last_; }
+
+   private:
+    size_t first_;
+    size_t last_;
+
+    bool overlaps(const LaneRange& other) const {
+        return first_ <= other.last_ && last_ >= other.first_;
+    }
+};
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\movement\movement.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include "id.h"
+#include "topology/movement/lane_range.h"
+#include "topology/movement/movement_geometry_spec.h"
+
+namespace topology {
+
+class Movement {
+   public:
+    Movement(EdgeId fromEdge, LaneRange laneRange, EdgeId toEdge,
+             double heading,
+             MovementGeometrySpec geometrySpec = MovementGeometrySpec::line())
+        : fromEdge_(fromEdge),
+          laneRange_(laneRange),
+          toEdge_(toEdge),
+          heading_(heading),
+          geometrySpec_(geometrySpec) {}
+
+    EdgeId fromEdge() const { return fromEdge_; }
+    const LaneRange& laneRange() const { return laneRange_; }
+    EdgeId toEdge() const { return toEdge_; }
+    double heading() const { return heading_; }
+    const MovementGeometrySpec& geometrySpec() const { return geometrySpec_; }
+
+   private:
+    EdgeId fromEdge_;
+    LaneRange laneRange_;
+    EdgeId toEdge_;
+    double heading_;
+    MovementGeometrySpec geometrySpec_;
+};
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\movement\movement_geometry_spec.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <variant>
+
+namespace topology {
+
+struct LineParams {};
+
+struct QuadBezierParams {};
+
+struct CubicBezierParams {
+    double control1Distance;
+    double control2Distance;
+};
+
+using MovementGeometryParams =
+    std::variant<LineParams, QuadBezierParams, CubicBezierParams>;
+
+enum class MovementGeometryType { LINE, QUAD_BEZIER, CUBIC_BEZIER };
+
+struct MovementGeometrySpec {
+    MovementGeometryType type;
+
+    double entryOffset = 0.0;
+    double exitOffset = 0.0;
+
+    MovementGeometryParams params;
+
+    static MovementGeometrySpec line(double entryOffset = 0.0,
+                                     double exitOffset = 0.0) {
+        return MovementGeometrySpec{MovementGeometryType::LINE, entryOffset,
+                                    exitOffset, LineParams{}};
+    }
+
+    static MovementGeometrySpec quadraticBezier(double entryOffset = 0.0,
+                                                double exitOffset = 0.0) {
+        return MovementGeometrySpec{MovementGeometryType::QUAD_BEZIER,
+                                    entryOffset, exitOffset,
+                                    QuadBezierParams{}};
+    }
+
+    static MovementGeometrySpec cubicBezier(double entryOffset = 0.0,
+                                            double exitOffset = 0.0,
+                                            double control1Distance = 10.0,
+                                            double control2Distance = 10.0) {
+        return MovementGeometrySpec{
+            MovementGeometryType::CUBIC_BEZIER, entryOffset, exitOffset,
+            CubicBezierParams{control1Distance, control2Distance}};
+    }
+};
+
+}  // namespace topology
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\movement\movement_structure.cpp
+////////////////////////////////////////////////////////////
+// movement_structure.cpp
+#include "movement_structure.h"
+
+#include <algorithm>
+#include <sstream>
+#include <stdexcept>
+
+#include "network.h"
+#include "position.h"
+#include "topology/edge.h"
+#include "topology/lane_group.h"
+#include "topology/node.h"
+#include "vector2.h"
+
+namespace topology {
+
+namespace {
+// movements can share at most 1 lane with neighbor
+bool validateLaneSharing(const std::vector<Movement>& movements) {
+    for (size_t i = 0; i < movements.size() - 1; ++i) {
+        size_t shared = movements[i].laneRange().sharedLaneCount(
+            movements[i + 1].laneRange());
+
+        if (shared > 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool validLaneSharing(const std::vector<Movement>& movements,
+                      LaneRange laneRange) {
+    for (const auto& movement : movements) {
+        if (movement.laneRange().sharedLaneCount(laneRange) > 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
+double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
+    Edge& fromEdge = network.edge(from);
+    Edge& toEdge = network.edge(to);
+    utils::Position fromPos = fromEdge.entry().position();
+    utils::Position toPos = toEdge.exit().position();
+
+    utils::Vector2 movementDirection = toPos - fromPos;
+    utils::Vector2 fromDirection =
+        utils::Vector2::fromAngle(fromEdge.entry().heading());
+
+    return fromDirection.angleTo(movementDirection);
+}
+
+void sortByHeading(std::vector<Movement>& movements) {
+    std::sort(movements.begin(), movements.end(),
+              [](const Movement& a, const Movement& b) {
+                  return a.heading() < b.heading();  // sort descending
+              });
+}
+
+auto findNewMovementPosition(std::vector<Movement>& movements,
+                             double newHeading) {
+    auto pos = std::lower_bound(movements.begin(), movements.end(), newHeading,
+                                [](const Movement& m, double heading) {
+                                    return m.heading() < heading;
+                                });
+
+    return pos;
+}
+
+bool validLaneUtilization(const std::vector<Movement>& movements,
+                          size_t laneCount) {
+    if (movements.empty() || laneCount == 0) return false;
+
+    size_t currentMaxReached = 0;
+    bool firstMovement = true;
+
+    for (const auto& m : movements) {
+        size_t first = m.laneRange().first();
+
+        if (firstMovement) {
+            if (first != 0) return false;
+            firstMovement = false;
+        } else if (first != currentMaxReached &&
+                   first != currentMaxReached + 1) {
+            return false;
+        }
+        currentMaxReached = m.laneRange().last();
+    }
+
+    // Final check: Did the last movement actually reach the edge of the road?
+    return currentMaxReached == laneCount - 1;
+}
+
+bool validLaneRange(const LaneRange& lr, size_t exitLaneCount) {
+    return lr.count() <= exitLaneCount;
+}
+}  // namespace
+
+MovementStructure::Builder::Builder(Network& network, NodeId nodeId)
+    : network_(network), nodeId_(nodeId) {}
+
+MovementStructure::Builder& MovementStructure::Builder::addMovement(
+    EdgeId from, EdgeId to, LaneRange laneRange,
+    MovementGeometrySpec geometrySpec) {
+    if (std::find(incomingEdges().begin(), incomingEdges().end(), from) ==
+        incomingEdges().end()) {
+        std::ostringstream msg;
+        msg << "Proposed movement at " << nodeId_ << " from " << from << " to "
+            << to << " but " << from << " is not part of that node.";
+        throw std::invalid_argument(msg.str());
+    }
+    if (std::find(outgoingEdges().begin(), outgoingEdges().end(), to) ==
+        outgoingEdges().end()) {
+        std::ostringstream msg;
+        msg << "Proposed movement at " << nodeId_ << " from " << from << " to "
+            << to << " but " << to << " is not part of that node.";
+        throw std::invalid_argument(msg.str());
+    }
+
+    size_t exitLaneCount = network_.edge(to).exit().laneCount();
+    if (!validLaneRange(laneRange, exitLaneCount)) {
+        std::ostringstream msg;
+        msg << "Proposed movement at " << nodeId_ << " from " << from << " to "
+            << to << " allocates " << laneRange.count()
+            << " lanes but there are only " << exitLaneCount
+            << " lanes at the target exit.";
+
+        throw std::invalid_argument(msg.str());
+    }
+
+    auto& movements = movements_[from];
+
+    if (!movements.empty()) {
+        if (!validLaneSharing(movements, laneRange)) {
+            std::ostringstream msg;
+            msg << "Proposed movements at " << nodeId_ << " from " << from
+                << " share more than 1 lane with each other.";
+            throw std::logic_error(msg.str());
+        }
+    }
+
+    double newHeading = edgeToEdgeHeading(network_, from, to);
+    auto pos = findNewMovementPosition(movements, newHeading);
+    movements.emplace(pos, from, laneRange, to, newHeading, geometrySpec);
+
+    return *this;
+}
+
+MovementStructure MovementStructure::Builder::build() {
+    for (const auto& [edgeId, movements] : movements_) {
+        if (!validLaneUtilization(movements,
+                                  network_.edge(edgeId).entry().laneCount())) {
+            std::ostringstream msg;
+            msg << "In movement structure at node " << nodeId_ << " from "
+                << edgeId << " not all lanes are used.";
+            throw std::logic_error(msg.str());
+        }
+    }
+    return MovementStructure(std::move(movements_));
+}
+
+MovementStructure::MovementStructure(
+    std::unordered_map<EdgeId, std::vector<Movement>> movements)
+    : movements_(std::move(movements)) {}
+
+const std::vector<EdgeId>& MovementStructure::Builder::incomingEdges() const {
+    return network_.node(nodeId_).incomingEdges();
+}
+
+const std::vector<EdgeId>& MovementStructure::Builder::outgoingEdges() const {
+    return network_.node(nodeId_).outgoingEdges();
+}
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\movement\movement_structure.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <unordered_map>
+#include <vector>
+
+#include "id.h"
+#include "topology/movement/lane_range.h"
+#include "topology/movement/movement.h"
+#include "topology/movement/movement_geometry_spec.h"
+
+class Network;
+
+namespace topology {
+
+class MovementStructure {
+   public:
+    MovementStructure() = default;
+    class Builder {
+       public:
+        explicit Builder(Network& network, NodeId nodeId);
+
+        // Add a movement from an incoming edge to an outgoing edge using
+        // specific lanes Must be called in order: movements for each incoming
+        // edge must go from leftmost to rightmost outgoing edge
+        Builder& addMovement(
+            EdgeId from, EdgeId to, LaneRange laneRange,
+            MovementGeometrySpec geometrySpec = MovementGeometrySpec::line());
+
+        MovementStructure build();
+
+       private:
+        Network& network_;
+        NodeId nodeId_;
+        std::unordered_map<EdgeId, std::vector<Movement>> movements_;
+
+        const std::vector<EdgeId>& incomingEdges() const;
+        const std::vector<EdgeId>& outgoingEdges() const;
+    };
+
+    const std::unordered_map<EdgeId, std::vector<Movement>>& movements() const {
+        return movements_;
+    }
+
+   private:
+    friend class Builder;
+    explicit MovementStructure(
+        std::unordered_map<EdgeId, std::vector<Movement>> movementStructure);
+
+    std::unordered_map<EdgeId, std::vector<Movement>> movements_;
+};
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\node.cpp
+////////////////////////////////////////////////////////////
+#include "topology/node.h"
+
+namespace topology {
+
+MovementStructure::Builder Node::createMovementBuilder(Network& network) {
+    return MovementStructure::Builder(network, id_);
+}
+
+void Node::setMovementStructure(MovementStructure&& structure) {
+    movementStructure_ = std::move(structure);
+}
+
+const std::optional<MovementStructure>& Node::movementStructure() const {
+    return movementStructure_;
+}
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: core\topology\node.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <optional>
+#include <vector>
+
+#include "id.h"
+#include "id_generator.h"
+#include "topology/crossing.h"
+#include "topology/movement/movement_structure.h"
+
+class Network;
+
+namespace topology {
+
+class Node {
+   public:
+    Node(NodeId id) : id_(id) {}
+    ~Node() = default;
+
+    Node(const Node&) = delete;
+    Node& operator=(const Node&) = delete;
+
+    Node(Node&&) = default;
+    Node& operator=(Node&&) = default;
+
+    void addIncomingEdge(EdgeId id) { incomingEdges_.push_back(id); }
+    void addOutgoingEdge(EdgeId id) { outgoingEdges_.push_back(id); }
+
+    const std::vector<EdgeId>& incomingEdges() const { return incomingEdges_; }
+    const std::vector<EdgeId>& outgoingEdges() const { return outgoingEdges_; }
+
+    MovementStructure::Builder createMovementBuilder(Network& network);
+    // setMovementStructure only via builder
+    void setMovementStructure(MovementStructure&& structure);
+    const std::optional<MovementStructure>& movementStructure() const;
+
+   private:
+    NodeId id_;
+
+    std::vector<EdgeId> incomingEdges_;
+    std::vector<EdgeId> outgoingEdges_;
+
+    std::optional<MovementStructure> movementStructure_;
+    std::unordered_map<CrossingId, Crossing> crossings_;
+    ScopedIdGenerator<CrossingTag, NodeId> crossingIdGen_;
+};
+
+}  // namespace topology
+
+
+////////////////////////////////////////////////////////////
+//// FILE: main.cpp
+////////////////////////////////////////////////////////////
+#include <QApplication>
+#include <QLocale>
+#include <QTranslator>
+
+#include "mainwindow.h"
+
+
+int main(int argc, char* argv[]) {
+    QApplication a(argc, argv);
+
+    QTranslator translator;
+    const QStringList uiLanguages = QLocale::system().uiLanguages();
+    for (const QString& locale : uiLanguages) {
+        const QString baseName = "Thesis_" + QLocale(locale).name();
+        if (translator.load(":/i18n/" + baseName)) {
+            a.installTranslator(&translator);
+            break;
+        }
+    }
+    MainWindow w;
+    w.show();
+    return a.exec();
+}
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: mainwindow.cpp
+////////////////////////////////////////////////////////////
+#include "mainwindow.h"
+
+#include <QGraphicsScene>
+#include <QGraphicsView>
+#include <QPainterPath>
+
+#include "geometry/calculators/edge_calculator.h"
+#include "geometry/calculators/movement_calculator.h"
+#include "network.h"
+#include "network_view.h"
+#include "topology/intersection.h"
+#include "topology/node.h"
+
+MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
+    network_ = new Network();
+
+    scene_ = new QGraphicsScene(this);
+
+    view_ = new NetworkView(this);
+    view_->setScene(scene_);
+    view_->setRenderHint(QPainter::Antialiasing);
+    setCentralWidget(view_);
+
+    for (const auto& [id, edge] : network_->edges()) {
+        QPointF startPos(edge.exit().position().x, edge.exit().position().y);
+        QPointF endPos(edge.entry().position().x, edge.entry().position().y);
+        scene_->addLine(QLineF(startPos, endPos), QPen(Qt::yellow, 0.2));
+
+        auto geo = geometry::EdgeCalculator::compute(*network_, id);
+        for (const auto& line : geo.entries()) {
+            QPointF p1(line.p1().x, line.p1().y);
+            QPointF p2(line.p2().x, line.p2().y);
+            scene_->addLine(QLineF(p1, p2), QPen(Qt::green, 0.2));
+            scene_->addEllipse(p1.x() - 0.2, p1.y() - 0.2, 0.4, 0.4,
+                               QPen(Qt::green, 0.2));
+        }
+        for (const auto& line : geo.exits()) {
+            QPointF p1(line.p1().x, line.p1().y);
+            QPointF p2(line.p2().x, line.p2().y);
+            scene_->addLine(QLineF(p1, p2), QPen(Qt::gray, 0.2));
+            scene_->addEllipse(p1.x() - 0.2, p1.y() - 0.2, 0.4, 0.4,
+                               QPen(Qt::gray, 0.2));
+        }
+    }
+
+    for (const auto& [_, intersection] : network_->intersections()) {
+        for (const auto& [id, node] : intersection.nodes()) {
+            // Only process nodes with valid movement structures
+            if (!node.movementStructure().has_value()) {
+                continue;  // Skip nodes without movement structure
+            }
+
+            for (const auto& fromEdgeId : node.incomingEdges()) {
+                auto groups = geometry::MovementCalculator::compute(
+                    *network_, fromEdgeId, id);
+
+                for (const auto& [_, mov] : groups) {
+                    for (const auto& path : mov.paths()) {
+                        QPainterPath ppath;
+                        bool first = true;
+                        for (const auto& p : path.positions()) {
+                            if (first) {
+                                ppath.moveTo(QPointF(p.x, p.y));
+                                first = false;
+                            } else {
+                                ppath.lineTo(QPointF(p.x, p.y));
+                            }
+                        }
+                        scene_->addPath(ppath, QPen(Qt::cyan, 0.1));
+                    }
+                }
+            }
+        }
+    }
+}
+
+MainWindow::~MainWindow() {}
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: mainwindow.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <QMainWindow>
+
+class Network;
+class QGraphicsScene;
+class NetworkView;
+
+QT_BEGIN_NAMESPACE
+namespace Ui {
+class MainWindow;
+}
+QT_END_NAMESPACE
+
+class MainWindow : public QMainWindow {
+    Q_OBJECT
+
+   public:
+    MainWindow(QWidget* parent = nullptr);
+    ~MainWindow();
+
+   private:
+    Network* network_;
+    QGraphicsScene* scene_;
+    NetworkView* view_;
+};
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: ui\network_scene.cpp
+////////////////////////////////////////////////////////////
+#include "network_scene.h"
+
+NetworkScene::NetworkScene(QObject* parent) : QGraphicsScene(parent) {}
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: ui\network_scene.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <QGraphicsScene>
+
+class NetworkScene : public QGraphicsScene {
+    Q_OBJECT
+   public:
+    NetworkScene(QObject* parent = nullptr);
+};
+
+
+////////////////////////////////////////////////////////////
+//// FILE: ui\network_view.cpp
+////////////////////////////////////////////////////////////
+#include "network_view.h"
+
+#include <QMouseEvent>
+#include <QScrollBar>
+
+NetworkView::NetworkView(QWidget* parent)
+    : QGraphicsView(parent),
+      isPanning_{false},
+      zoomLevel_{1.0},
+      zoomStrength_{1.004},
+      minZoom_{0.1},
+      maxZoom_{50.0} {
+    setRenderHint(QPainter::Antialiasing);
+    setDragMode(QGraphicsView::NoDrag);
+    setTransformationAnchor(QGraphicsView::NoAnchor);
+    setResizeAnchor(QGraphicsView::NoAnchor);
+    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+}
+
+void NetworkView::resetZoom() {
+    if (scene()) {
+        QRectF bounds = scene()->itemsBoundingRect();
+        if (bounds.isNull()) {
+            centerOn(0, 0);
+        } else {
+            qreal padding = 50.0;
+            bounds = bounds.marginsAdded(
+                QMarginsF(padding, padding, padding, padding));
+
+            fitInView(bounds, Qt::KeepAspectRatio);
+        }
+        zoomLevel_ = 1.0;
+    }
+}
+
+void NetworkView::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == panButton_) {
+        startPanning(event->pos());
+        event->accept();
+    } else {
+        QGraphicsView::mousePressEvent(event);
+    }
+}
+
+void NetworkView::mouseMoveEvent(QMouseEvent* event) {
+    if (isPanning_) {
+        updatePanning(event->pos());
+        lastPanPos_ = event->pos();
+        event->accept();
+    } else {
+        QGraphicsView::mouseMoveEvent(event);
+    }
+}
+
+void NetworkView::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == panButton_) {
+        stopPanning();
+        event->accept();
+    } else {
+        QGraphicsView::mouseReleaseEvent(event);
+    }
+}
+
+void NetworkView::wheelEvent(QWheelEvent* event) {
+    if (int delta = event->angleDelta().y()) {
+        qreal zoomFactor = std::pow(zoomStrength_, delta);
+        qreal futureZoomLevel = zoomLevel_ * zoomFactor;
+
+        if (futureZoomLevel < minZoom_ || futureZoomLevel > maxZoom_) return;
+        zoomLevel_ = futureZoomLevel;
+
+        QPointF targetViewportPos = event->position();
+        QPointF targetScenePos = mapToScene(event->position().toPoint());
+
+        scale(zoomFactor, zoomFactor);
+
+        QPointF newViewportPos = mapFromScene(targetScenePos);
+        QPointF viewportDelta = targetViewportPos - newViewportPos;
+
+        horizontalScrollBar()->setValue(horizontalScrollBar()->value() -
+                                        qRound(viewportDelta.x()));
+        verticalScrollBar()->setValue(verticalScrollBar()->value() -
+                                      qRound(viewportDelta.y()));
+    }
+}
+
+void NetworkView::startPanning(const QPoint& p) {
+    isPanning_ = true;
+    lastPanPos_ = p;
+    setCursor(panCursor_);
+    setInteractive(false);
+}
+
+void NetworkView::updatePanning(const QPoint& p) {
+    QPoint delta = p - lastPanPos_;
+    int newHorizontal = horizontalScrollBar()->value() - delta.x();
+    int newVertical = verticalScrollBar()->value() - delta.y();
+
+    horizontalScrollBar()->setValue(newHorizontal);
+    verticalScrollBar()->setValue(newVertical);
+}
+
+void NetworkView::stopPanning() {
+    isPanning_ = false;
+    unsetCursor();
+    setInteractive(true);
+}
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: ui\network_view.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <QGraphicsView>
+
+class NetworkView : public QGraphicsView {
+    Q_OBJECT
+   public:
+    NetworkView(QWidget* parent = nullptr);
+
+    // Panning
+    void panButton(Qt::MouseButton button) { panButton_ = button; }
+    bool isPanning() const { return isPanning_; }
+
+    // Zooming
+    qreal zoomLevel() const { return zoomLevel_; }
+    void zoomLimits(qreal min, qreal max) {
+        minZoom_ = min;
+        maxZoom_ = max;
+    }
+    void zoomStrength(qreal s) { zoomStrength_ = s; }
+    void resetZoom();
+
+   protected:
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
+
+   private:
+    // Panning
+    bool isPanning_{false};
+    QPoint lastPanPos_;
+    Qt::MouseButton panButton_{Qt::MiddleButton};
+    Qt::CursorShape panCursor_{Qt::ClosedHandCursor};
+
+    void startPanning(const QPoint& p);
+    void updatePanning(const QPoint& p);
+    void stopPanning();
+
+    // Zooming
+    qreal zoomLevel_;
+    qreal zoomStrength_;
+    qreal minZoom_;
+    qreal maxZoom_;
+
+    void performZoom(qreal delta);
+};
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: utils\line.cpp
+////////////////////////////////////////////////////////////
+#include "line.h"
+
+#include <cmath>
+
+#include "vector2.h"
+
+namespace utils {
+namespace {
+struct LineEquation {
+    float a, b, c;  // ax + by + c = 0
+};
+
+LineEquation toEquation(const Line& line) {
+    float a = line.p2().y - line.p1().y;
+    float b = line.p1().x - line.p2().x;
+    float c = line.p1().x * line.p2().y - line.p2().x * line.p1().y;
+    return {a, b, c};
+}
+}  // namespace
+
+Line::Line(Position p1, Position p2) : p1_(p1), p2_(p2) {}
+Line::Line(Position p1, double heading, double length) : p1_(p1) {
+    p2_ = p1 + Vector2::fromAngle(heading) * length;
+}
+
+// Vector2 Line::direction() const { return p2_ - p1_; }
+
+bool Line::intersection(const Line& other, Position& intersection) const {
+    LineEquation eq1 = toEquation(*this);
+    LineEquation eq2 = toEquation(other);
+
+    float det = eq1.a * eq2.b - eq2.a * eq1.b;
+    if (std::abs(det) < eps) {
+        return false;
+    }
+
+    float x = (eq1.b * eq2.c - eq2.b * eq1.c) / det;
+    float y = (eq2.a * eq1.c - eq1.a * eq2.c) / det;
+
+    intersection = Position(x, y);
+    return true;
+}
+
+}  // namespace utils
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: utils\line.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include "position.h"
+
+namespace utils {
+
+class Line {
+   public:
+    Line(Position p1, Position p2);
+    Line(Position p1, double heading, double length = 1.0);
+
+    void setP1(Position p1) { p1_ = p1; }
+    void setP2(Position p2) { p2_ = p2; }
+
+    Position p1() const { return p1_; }
+    Position p2() const { return p2_; }
+
+    // @return true if lines intersect, false otherwise
+    // @param intersection output parameter for intersection point
+    bool intersection(const Line& other, Position& intersection) const;
+
+   private:
+    Position p1_;
+    Position p2_;
+
+    static constexpr double eps = 1e-6;
+};
+
+}  // namespace utils
+
+
+////////////////////////////////////////////////////////////
+//// FILE: utils\polyline.cpp
+////////////////////////////////////////////////////////////
+#include "polyline.h"
+
+namespace utils {
+
+namespace {
+
+bool isQuadFlat(Position p1, Position p2, Position c, double tolerance) {
+    double dx = p2.x - p1.x;
+    double dy = p2.y - p1.y;
+
+    // Cross product to find distance from point 'c' to line 'p1-p2'
+    double ux = c.x - p1.x;
+    double uy = c.y - p1.y;
+    double area = ux * dy - uy * dx;
+
+    // Squared distance from c to line p1-p2
+    double distSq = (area * area) / (dx * dx + dy * dy);
+
+    return distSq <= (tolerance * tolerance);
+}
+
+bool isCubicFlat(Position p1, Position p2, Position c1, Position c2,
+                 double tolerance) {
+    double dx = p2.x - p1.x;
+    double dy = p2.y - p1.y;
+    double tolSq = tolerance * tolerance;
+    double lineLenSq = dx * dx + dy * dy;
+
+    // Handle the case where p1 and p2 are the same point (degenerated line)
+    if (lineLenSq < 1e-9) {
+        double d1sq =
+            (c1.x - p1.x) * (c1.x - p1.x) + (c1.y - p1.y) * (c1.y - p1.y);
+        double d2sq =
+            (c2.x - p1.x) * (c2.x - p1.x) + (c2.y - p1.y) * (c2.y - p1.y);
+        return d1sq <= tolSq && d2sq <= tolSq;
+    }
+
+    // Distance for c1
+    double area1 = (c1.x - p1.x) * dy - (c1.y - p1.y) * dx;
+    if ((area1 * area1) / lineLenSq > tolSq) return false;
+
+    // Distance for c2
+    double area2 = (c2.x - p1.x) * dy - (c2.y - p1.y) * dx;
+    if ((area2 * area2) / lineLenSq > tolSq) return false;
+
+    return true;
+}
+
+void subdivideQuadraticBezier(Position p1, Position p2, Position c,
+                              double tolerance, std::vector<Position>& out) {
+    Position m0 = {(p1.x + c.x) / 2.0, (p1.y + c.y) / 2.0};
+    Position m1 = {(c.x + p2.x) / 2.0, (c.y + p2.y) / 2.0};
+    Position m2 = {(m0.x + m1.x) / 2.0, (m0.y + m1.y) / 2.0};
+
+    if (isQuadFlat(p1, p2, c, tolerance)) {
+        out.push_back(p2);  // Segment is flat enough
+    } else {
+        subdivideQuadraticBezier(p1, m2, m0, tolerance, out);
+        subdivideQuadraticBezier(m2, p2, m1, tolerance, out);
+    }
+}
+
+void subdivideCubicBezier(Position p1, Position p2, Position c1, Position c2,
+                          double tolerance, std::vector<Position>& out) {
+    Position m0 = {(p1.x + c1.x) / 2, (p1.y + c1.y) / 2};
+    Position m1 = {(c1.x + c2.x) / 2, (c1.y + c2.y) / 2};
+    Position m2 = {(c2.x + p2.x) / 2, (c2.y + p2.y) / 2};
+    Position q0 = {(m0.x + m1.x) / 2, (m0.y + m1.y) / 2};
+    Position q1 = {(m1.x + m2.x) / 2, (m1.y + m2.y) / 2};
+    Position b = {(q0.x + q1.x) / 2, (q0.y + q1.y) / 2};
+
+    if (isCubicFlat(p1, p2, c1, c2, tolerance)) {
+        out.push_back(p2);
+    } else {
+        subdivideCubicBezier(p1, b, m0, q0, tolerance, out);
+        subdivideCubicBezier(b, p2, q1, m2, tolerance, out);
+    }
+}
+}  // namespace
+
+Polyline::Polyline(std::vector<Position> positions) : positions_(positions) {}
+
+Polyline::Polyline(Position p1, Position p2, Position c, double tolerance) {
+    positions_.push_back(p1);
+    subdivideQuadraticBezier(p1, p2, c, tolerance, positions_);
+}
+
+Polyline::Polyline(Position p1, Position p2, Position c1, Position c2,
+                   double tolerance) {
+    positions_.push_back(p1);
+    subdivideCubicBezier(p1, p2, c1, c2, tolerance, positions_);
+}
+
+void Polyline::addPosition(Position position) {
+    positions_.push_back(position);
+}
+}  // namespace utils
+
+
+////////////////////////////////////////////////////////////
+//// FILE: utils\polyline.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <vector>
+
+#include "position.h"
+
+namespace utils {
+
+class Polyline {
+   public:
+    Polyline() = default;
+    explicit Polyline(std::vector<Position> positions);
+    Polyline(Position p1, Position p2, Position c,
+             double tolerance = 0.1);  // quadratic Bezier curve
+    Polyline(Position p1, Position p2, Position c1, Position c2,
+             double tolerance = 0.1);  // cubic Bezier curve
+
+    void setPositions(std::vector<Position> positions);
+    void addPosition(Position position);
+
+    const std::vector<Position>& positions() const { return positions_; }
+
+   private:
+    std::vector<Position> positions_;
+};
+
+}  // namespace utils
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: utils\position.cpp
+////////////////////////////////////////////////////////////
+#include "position.h"
+
+#include "vector2.h"
+
+namespace utils {
+
+Position operator+(Position p, Vector2 v) { return {p.x + v.dx, p.y + v.dy}; }
+
+Position operator-(Position p, Vector2 v) { return {p.x - v.dx, p.y - v.dy}; }
+
+Vector2 operator-(Position a, Position b) { return {a.x - b.x, a.y - b.y}; }
+
+}  // namespace utils
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: utils\position.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+namespace utils {
+
+class Vector2;
+
+struct Position {
+    double x;
+    double y;
+};
+
+Position operator+(Position p, Vector2 v);
+Position operator-(Position p, Vector2 v);
+Vector2 operator-(Position a, Position b);
+
+}  // namespace utils
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: utils\vector2.cpp
+////////////////////////////////////////////////////////////
+#include "vector2.h"
+
+#include <cassert>
+#include <cmath>
+
+namespace utils {
+
+Vector2 Vector2::fromAngle(double radians) {
+    return {std::cos(radians), std::sin(radians)};
+}
+
+double Vector2::length() const { return std::sqrt(dx * dx + dy * dy); }
+
+bool Vector2::isZero() const { return dx * dx + dy * dy < eps * eps; }
+
+Vector2 Vector2::normalized() const {
+    double len = length();
+    assert(len > eps && "Cannot normalize zero vector");
+    return {dx / len, dy / len};
+}
+
+double Vector2::dot(Vector2 v) const { return dx * v.dx + dy * v.dy; }
+
+double Vector2::cross(Vector2 v) const { return dx * v.dy - dy * v.dx; }
+
+double Vector2::angle() const {
+    assert(!isZero() && "Cannot get angle of zero vector");
+    return std::atan2(dy, dx);
+}
+
+double Vector2::angleTo(Vector2 v) const {
+    assert(!isZero() && !v.isZero() && "Cannot get angle to zero vector");
+    return std::atan2(cross(v), dot(v));
+}
+
+Vector2 operator+(Vector2 a, Vector2 b) { return {a.dx + b.dx, a.dy + b.dy}; }
+
+Vector2 operator-(Vector2 a, Vector2 b) { return {a.dx - b.dx, a.dy - b.dy}; }
+
+Vector2 operator*(Vector2 v, double s) { return {v.dx * s, v.dy * s}; }
+
+Vector2 operator*(double s, Vector2 v) { return v * s; }
+
+Vector2 operator/(Vector2 v, double s) { return {v.dx / s, v.dy / s}; }
+
+}  // namespace utils
+
+
+
+////////////////////////////////////////////////////////////
+//// FILE: utils\vector2.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+namespace utils {
+
+struct Vector2 {
+    double dx;
+    double dy;
+
+    static Vector2 fromAngle(double radians);
+
+    bool isZero() const;
+
+    double length() const;
+    Vector2 normalized() const;
+
+    double dot(Vector2 v) const;
+    double cross(Vector2 v) const;
+    double angle() const;
+    double angleTo(Vector2 v) const;
+
+   private:
+    constexpr static double eps = 1e-9;
+};
+
+// operators â€” free functions
+Vector2 operator+(Vector2 a, Vector2 b);
+Vector2 operator-(Vector2 a, Vector2 b);
+Vector2 operator*(Vector2 v, double s);
+Vector2 operator*(double s, Vector2 v);
+Vector2 operator/(Vector2 v, double s);
+
+}  // namespace utils
+
+
+

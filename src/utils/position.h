@@ -12,5 +12,7 @@ struct Position {
 Position operator+(Position p, Vector2 v);
 Position operator-(Position p, Vector2 v);
 Vector2 operator-(Position a, Position b);
+bool operator==(Position a, Position b);
+bool operator!=(Position a, Position b);
 
 }  // namespace utils

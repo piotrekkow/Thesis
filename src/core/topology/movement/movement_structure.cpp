@@ -2,14 +2,17 @@
 #include "movement_structure.h"
 
 #include <algorithm>
+#include <sstream>
 #include <stdexcept>
 
-#include "edge.h"
-#include "lane_group.h"
 #include "network.h"
-#include "node.h"
 #include "position.h"
+#include "topology/edge.h"
+#include "topology/lane_group.h"
+#include "topology/node.h"
 #include "vector2.h"
+
+namespace topology {
 
 namespace {
 // movements can share at most 1 lane with neighbor
@@ -25,8 +28,8 @@ bool validateLaneSharing(const std::vector<Movement>& movements) {
     return true;
 }
 
-bool validateLaneSharing(const std::vector<Movement>& movements,
-                         LaneRange laneRange) {
+bool validLaneSharing(const std::vector<Movement>& movements,
+                      LaneRange laneRange) {
     for (const auto& movement : movements) {
         if (movement.laneRange().sharedLaneCount(laneRange) > 1) {
             return false;
@@ -38,12 +41,12 @@ bool validateLaneSharing(const std::vector<Movement>& movements,
 double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
     Edge& fromEdge = network.edge(from);
     Edge& toEdge = network.edge(to);
-    utils::Position fromPos = fromEdge.exit().position();
-    utils::Position toPos = toEdge.entry().position();
+    utils::Position fromPos = fromEdge.entry().position();
+    utils::Position toPos = toEdge.exit().position();
 
     utils::Vector2 movementDirection = toPos - fromPos;
     utils::Vector2 fromDirection =
-        utils::Vector2::fromAngle(fromEdge.exit().heading());
+        utils::Vector2::fromAngle(fromEdge.entry().heading());
 
     return fromDirection.angleTo(movementDirection);
 }
@@ -65,8 +68,8 @@ auto findNewMovementPosition(std::vector<Movement>& movements,
     return pos;
 }
 
-bool validateAllLanes(const std::vector<Movement>& movements,
-                      size_t laneCount) {
+bool validLaneUtilization(const std::vector<Movement>& movements,
+                          size_t laneCount) {
     if (movements.empty() || laneCount == 0) return false;
 
     size_t currentMaxReached = 0;
@@ -88,6 +91,10 @@ bool validateAllLanes(const std::vector<Movement>& movements,
     // Final check: Did the last movement actually reach the edge of the road?
     return currentMaxReached == laneCount - 1;
 }
+
+bool validLaneRange(const LaneRange& lr, size_t exitLaneCount) {
+    return lr.count() <= exitLaneCount;
+}
 }  // namespace
 
 MovementStructure::Builder::Builder(Network& network, NodeId nodeId)
@@ -98,20 +105,39 @@ MovementStructure::Builder& MovementStructure::Builder::addMovement(
     MovementGeometrySpec geometrySpec) {
     if (std::find(incomingEdges().begin(), incomingEdges().end(), from) ==
         incomingEdges().end()) {
-        throw std::invalid_argument("Edge not in incoming edges");
+        std::ostringstream msg;
+        msg << "Proposed movement at " << nodeId_ << " from " << from << " to "
+            << to << " but " << from << " is not part of that node.";
+        throw std::invalid_argument(msg.str());
     }
     if (std::find(outgoingEdges().begin(), outgoingEdges().end(), to) ==
         outgoingEdges().end()) {
-        throw std::invalid_argument("Edge not in outgoing edges");
+        std::ostringstream msg;
+        msg << "Proposed movement at " << nodeId_ << " from " << from << " to "
+            << to << " but " << to << " is not part of that node.";
+        throw std::invalid_argument(msg.str());
     }
 
-    auto& movements = movementStructure_[from];
+    size_t exitLaneCount = network_.edge(to).exit().laneCount();
+    if (!validLaneRange(laneRange, exitLaneCount)) {
+        std::ostringstream msg;
+        msg << "Proposed movement at " << nodeId_ << " from " << from << " to "
+            << to << " allocates " << laneRange.count()
+            << " lanes but there are only " << exitLaneCount
+            << " lanes at the target exit.";
+
+        throw std::invalid_argument(msg.str());
+    }
+
+    auto& movements = movements_[from];
 
     if (!movements.empty()) {
-        if (!validateLaneSharing(movements, laneRange))
-            throw std::logic_error(
-                "Proposed movement shares more than 1 lane with existing "
-                "movement(s)");
+        if (!validLaneSharing(movements, laneRange)) {
+            std::ostringstream msg;
+            msg << "Proposed movements at " << nodeId_ << " from " << from
+                << " share more than 1 lane with each other.";
+            throw std::logic_error(msg.str());
+        }
     }
 
     double newHeading = edgeToEdgeHeading(network_, from, to);
@@ -122,18 +148,21 @@ MovementStructure::Builder& MovementStructure::Builder::addMovement(
 }
 
 MovementStructure MovementStructure::Builder::build() {
-    for (const auto& [edgeId, movements] : movementStructure_) {
-        if (!validateAllLanes(movements,
-                              network_.edge(edgeId).exit().laneCount()))
-            throw std::logic_error(
-                "Movement structure invalid: not all lanes used");
+    for (const auto& [edgeId, movements] : movements_) {
+        if (!validLaneUtilization(movements,
+                                  network_.edge(edgeId).entry().laneCount())) {
+            std::ostringstream msg;
+            msg << "In movement structure at node " << nodeId_ << " from "
+                << edgeId << " not all lanes are used.";
+            throw std::logic_error(msg.str());
+        }
     }
-    return MovementStructure(std::move(movementStructure_));
+    return MovementStructure(std::move(movements_));
 }
 
 MovementStructure::MovementStructure(
     std::unordered_map<EdgeId, std::vector<Movement>> movements)
-    : movementStructure_(std::move(movements)) {}
+    : movements_(std::move(movements)) {}
 
 const std::vector<EdgeId>& MovementStructure::Builder::incomingEdges() const {
     return network_.node(nodeId_).incomingEdges();
@@ -142,3 +171,5 @@ const std::vector<EdgeId>& MovementStructure::Builder::incomingEdges() const {
 const std::vector<EdgeId>& MovementStructure::Builder::outgoingEdges() const {
     return network_.node(nodeId_).outgoingEdges();
 }
+
+}  // namespace topology

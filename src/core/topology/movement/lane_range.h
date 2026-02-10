@@ -1,6 +1,8 @@
 #pragma once
 #include <cstddef>
 
+namespace topology {
+
 class LaneRange {
    public:
     LaneRange(int single);
@@ -20,3 +22,5 @@ class LaneRange {
         return first_ <= other.last_ && last_ >= other.first_;
     }
 };
+
+}  // namespace topology

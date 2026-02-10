@@ -2,6 +2,8 @@
 
 #include "position.h"
 
+namespace topology {
+
 class Crossing {
    public:
     Crossing();
@@ -18,3 +20,5 @@ class Crossing {
     utils::Position p2_;
     double width_;
 };
+
+}  // namespace topology

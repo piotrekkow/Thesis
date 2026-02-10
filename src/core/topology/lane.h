@@ -1,5 +1,7 @@
 #pragma once
 
+namespace topology {
+
 class Lane {
    public:
     Lane(double width) : width_(width) {}
@@ -9,3 +11,5 @@ class Lane {
    private:
     double width_;
 };
+
+}  // namespace topology

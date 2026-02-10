@@ -1,12 +1,13 @@
 #pragma once
 
 #include "id.h"
-#include "lane_group.h"
+#include "topology/lane_group.h"
 
+namespace topology {
 class Edge {
    public:
-    Edge(NodeId from, utils::Position entryPos, NodeId to,
-         utils::Position exitPos);
+    Edge(NodeId from, utils::Position exitPos, NodeId to,
+         utils::Position entryPos);
     ~Edge() = default;
 
     Edge(const Edge&) = delete;
@@ -18,16 +19,17 @@ class Edge {
     NodeId from() const { return from_; }
     NodeId to() const { return to_; }
 
-    LaneGroup& entry() { return entry_; }
     LaneGroup& exit() { return exit_; }
+    LaneGroup& entry() { return entry_; }
 
-    const LaneGroup& entry() const { return entry_; }
     const LaneGroup& exit() const { return exit_; }
+    const LaneGroup& entry() const { return entry_; }
 
    private:
     NodeId from_;
     NodeId to_;
 
-    LaneGroup entry_;
     LaneGroup exit_;
+    LaneGroup entry_;
 };
+}  // namespace topology

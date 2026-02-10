@@ -1,6 +1,6 @@
-#include "node.h"
+#include "topology/node.h"
 
-#include "movement_structure.h"
+namespace topology {
 
 MovementStructure::Builder Node::createMovementBuilder(Network& network) {
     return MovementStructure::Builder(network, id_);
@@ -13,3 +13,5 @@ void Node::setMovementStructure(MovementStructure&& structure) {
 const std::optional<MovementStructure>& Node::movementStructure() const {
     return movementStructure_;
 }
+
+}  // namespace topology

@@ -4,11 +4,13 @@
 #include <vector>
 
 #include "id.h"
-#include "lane_range.h"
-#include "movement.h"
-#include "movement_geometry_spec.h"
+#include "topology/movement/lane_range.h"
+#include "topology/movement/movement.h"
+#include "topology/movement/movement_geometry_spec.h"
 
 class Network;
+
+namespace topology {
 
 class MovementStructure {
    public:
@@ -29,15 +31,14 @@ class MovementStructure {
        private:
         Network& network_;
         NodeId nodeId_;
-        std::unordered_map<EdgeId, std::vector<Movement>> movementStructure_;
+        std::unordered_map<EdgeId, std::vector<Movement>> movements_;
 
         const std::vector<EdgeId>& incomingEdges() const;
         const std::vector<EdgeId>& outgoingEdges() const;
     };
 
-    const std::unordered_map<EdgeId, std::vector<Movement>>& movementStructure()
-        const {
-        return movementStructure_;
+    const std::unordered_map<EdgeId, std::vector<Movement>>& movements() const {
+        return movements_;
     }
 
    private:
@@ -45,5 +46,7 @@ class MovementStructure {
     explicit MovementStructure(
         std::unordered_map<EdgeId, std::vector<Movement>> movementStructure);
 
-    std::unordered_map<EdgeId, std::vector<Movement>> movementStructure_;
+    std::unordered_map<EdgeId, std::vector<Movement>> movements_;
 };
+
+}  // namespace topology

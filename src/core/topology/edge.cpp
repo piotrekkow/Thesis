@@ -1,11 +1,13 @@
-#include "edge.h"
+#include "topology/edge.h"
 
 #include "position.h"
 #include "vector2.h"
 
-Edge::Edge(NodeId from, utils::Position entryPos, NodeId to,
-           utils::Position exitPos)
+namespace topology {
+Edge::Edge(NodeId from, utils::Position exitPos, NodeId to,
+           utils::Position entryPos)
     : from_(from),
       to_(to),
-      entry_(entryPos, (exitPos - entryPos).angle()),
-      exit_(exitPos, (exitPos - entryPos).angle()) {}
+      exit_(exitPos, (entryPos - exitPos).angle()),
+      entry_(entryPos, (entryPos - exitPos).angle()) {}
+}  // namespace topology

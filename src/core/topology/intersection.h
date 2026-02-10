@@ -4,11 +4,13 @@
 
 #include "id.h"
 #include "id_generator.h"
-#include "node.h"
+#include "topology/node.h"
 
 namespace utils {
 class Position;
 }
+
+namespace topology {
 
 class Intersection {
    public:
@@ -24,6 +26,7 @@ class Intersection {
     NodeId createNode();
 
     Node& node(NodeId id) { return nodes_.at(id); }
+    const Node& node(NodeId id) const { return nodes_.at(id); }
     const std::unordered_map<NodeId, Node>& nodes() const { return nodes_; }
 
    private:
@@ -31,3 +34,5 @@ class Intersection {
     std::unordered_map<NodeId, Node> nodes_;
     ScopedIdGenerator<NodeTag, IntersectionId> nodeIdGen_;
 };
+
+}  // namespace topology

@@ -28,5 +28,6 @@ Vector2 operator-(Vector2 a, Vector2 b);
 Vector2 operator*(Vector2 v, double s);
 Vector2 operator*(double s, Vector2 v);
 Vector2 operator/(Vector2 v, double s);
+Vector2 operator-(Vector2 v);
 
 }  // namespace utils

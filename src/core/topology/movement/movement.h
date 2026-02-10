@@ -1,8 +1,10 @@
 #pragma once
 
 #include "id.h"
-#include "lane_range.h"
-#include "movement_geometry_spec.h"
+#include "topology/movement/lane_range.h"
+#include "topology/movement/movement_geometry_spec.h"
+
+namespace topology {
 
 class Movement {
    public:
@@ -19,7 +21,7 @@ class Movement {
     const LaneRange& laneRange() const { return laneRange_; }
     EdgeId toEdge() const { return toEdge_; }
     double heading() const { return heading_; }
-    MovementGeometrySpec& geometrySpec() { return geometrySpec_; }
+    const MovementGeometrySpec& geometrySpec() const { return geometrySpec_; }
 
    private:
     EdgeId fromEdge_;
@@ -28,3 +30,5 @@ class Movement {
     double heading_;
     MovementGeometrySpec geometrySpec_;
 };
+
+}  // namespace topology
