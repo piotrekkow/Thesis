@@ -13,5 +13,5 @@ void DebugSink::drawPoint(utils::Position p, QColor c) {
 
 void DebugSink::drawLine(utils::Line l, QColor c) {
     if (!scene_) return;
-    scene_->addLine(l.p1().x, l.p1().y, l.p2().x, l.p2().y, QPen(c, 0.5));
+    scene_->addLine(l.p1().x, l.p1().y, l.p2().x, l.p2().y, QPen(c, 0.2));
 }

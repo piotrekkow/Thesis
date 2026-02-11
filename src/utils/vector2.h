@@ -17,6 +17,7 @@ struct Vector2 {
     double cross(Vector2 v) const;
     double angle() const;
     double angleTo(Vector2 v) const;
+    Vector2 rotate(double radians) const;
 
    private:
     constexpr static double eps = 1e-9;

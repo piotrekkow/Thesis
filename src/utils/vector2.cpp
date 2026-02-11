@@ -33,6 +33,11 @@ double Vector2::angleTo(Vector2 v) const {
     return std::atan2(cross(v), dot(v));
 }
 
+Vector2 Vector2::rotate(double radians) const {
+    return {dx * std::cos(radians) - dy * std::sin(radians),
+            dx * std::sin(radians) + dy * std::cos(radians)};
+}
+
 Vector2 operator+(Vector2 a, Vector2 b) { return {a.dx + b.dx, a.dy + b.dy}; }
 
 Vector2 operator-(Vector2 a, Vector2 b) { return {a.dx - b.dx, a.dy - b.dy}; }

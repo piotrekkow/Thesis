@@ -13,22 +13,11 @@
 #include "utils/vector2.h"
 
 namespace geometry {
+namespace {
 
-Edge EdgeCalculator::compute(const Network& network, EdgeId id) {
-    const topology::Edge& topo = network.edge(id);
-    const auto& x = topo.exit();
-    const auto& e = topo.entry();
-
-    auto xLines =
-        laneUnitBoundVectors(x.position(), x.heading(), x.laneWidths());
-    auto eLines =
-        laneUnitBoundVectors(e.position(), e.heading(), e.laneWidths());
-
-    return Edge(xLines, eLines);
-}
-
-std::vector<utils::Line> EdgeCalculator::laneUnitBoundVectors(
-    utils::Position handle, double heading, std::vector<double> widths) {
+std::vector<utils::Line> laneUnitBoundVectors(utils::Position handle,
+                                              double heading,
+                                              std::vector<double> widths) {
     std::vector<utils::Line> positions;
 
     if (widths.empty()) {
@@ -47,6 +36,20 @@ std::vector<utils::Line> EdgeCalculator::laneUnitBoundVectors(
     }
 
     return positions;
+}
+}  // namespace
+
+Edge EdgeCalculator::compute(const Network& network, EdgeId id) {
+    const topology::Edge& topo = network.edge(id);
+    const auto& x = topo.exit();
+    const auto& e = topo.entry();
+
+    auto xLines =
+        laneUnitBoundVectors(x.position(), x.heading(), x.laneWidths());
+    auto eLines =
+        laneUnitBoundVectors(e.position(), e.heading(), e.laneWidths());
+
+    return Edge(xLines, eLines);
 }
 
 }  // namespace geometry
@@ -69,7 +72,7 @@ class EdgeCalculator {
     static Edge compute(const Network& network, EdgeId id);
 
    private:
-    static std::vector<utils::Line> laneUnitBoundVectors(
+    static std::vector<utils::Position> lanePositions(
         utils::Position handle, double heading, std::vector<double> widths);
 };
 
@@ -82,8 +85,12 @@ class EdgeCalculator {
 ////////////////////////////////////////////////////////////
 #include "geometry/calculators/movement_calculator.h"
 
+#include <qdebug.h>
+#include <qnamespace.h>
+
 #include <utility>
 
+#include "debug_sink.h"
 #include "geometry/calculators/edge_calculator.h"
 #include "geometry/edge.h"
 #include "geometry/movement.h"
@@ -95,106 +102,140 @@ class EdgeCalculator {
 #include "topology/movement/movement_geometry_spec.h"
 #include "topology/movement/movement_structure.h"
 #include "topology/node.h"
+#include "utils/position.h"
+#include "utils/vector2.h"
 
 namespace geometry {
 namespace {
-utils::Position offsetAnchor(const std::vector<utils::Line>& lanes,
-                             size_t indexA, size_t indexB, double offset,
-                             bool forward) {
-    const utils::Line& ref = lanes[indexA];
 
-    utils::Vector2 dir = (ref.p2() - ref.p1()).normalized();
-    double signedOffset = forward ? offset : -offset;
+// calculate midpoint anchor as base for movement mitre calculations
+utils::Position offsetAnchor(utils::Line& leftmost, utils::Line& rightmost) {
+    utils::Position p = leftmost.p1();
 
-    utils::Position p = ref.p1() + dir * signedOffset;
-
-    // multi-lane: shift toward center between fringe lanes
-    if (indexA != indexB) {
-        utils::Vector2 lateral =
-            (lanes[indexB].p1() - lanes[indexA].p1()) / 2.0;
+    if ((leftmost.p1() != rightmost.p1()) ||
+        (leftmost.p2() != rightmost.p2())) {
+        utils::Vector2 lateral = (rightmost.p1() - leftmost.p1()) / 2.0;
         p = p + lateral;
     }
-
     return p;
 }
 
-utils::Vector2 mitreDirection(utils::Position prev, utils::Position corner,
-                              utils::Position next) {
-    utils::Vector2 v1 = (corner - prev).normalized();
-    utils::Vector2 v2 = (next - corner).normalized();
+utils::Polyline buildPath(utils::Position entry, utils::Position entryOffset,
+                          utils::Position exitOffset, utils::Position exit,
+                          const topology::MovementGeometrySpec& geometrySpec) {
+    utils::Polyline path;
+    path.addPosition(entry);
 
-    utils::Vector2 bisector = v1 + v2;
-
-    if (bisector.isZero()) return {-v1.dy, v1.dx};
-
-    return bisector.normalized();
-}
-
-utils::Position intersectRayWithLine(utils::Position origin, utils::Vector2 dir,
-                                     const utils::Line& line) {
-    utils::Line ray(origin, origin + dir);
-    utils::Position out;
-    if (!ray.intersection(line, out))
-        throw std::runtime_error("Mitre intersection failed");
-    return out;
-}
-
-utils::Polyline buildLinePath(const utils::Line& entryLine,
-                              const utils::Line& exitLine,
-                              utils::Position entryMitreAnchor,
-                              utils::Position exitMitreAnchor) {
-    utils::Polyline p;
-    p.addPosition(entryLine.p1());
-
-    auto dirEntry =
-        mitreDirection(entryLine.p1(), entryMitreAnchor, exitMitreAnchor);
-
-    auto entryMitre =
-        intersectRayWithLine(entryMitreAnchor, dirEntry, entryLine);
-
-    p.addPosition(entryMitre);
-
-    auto dirExit =
-        mitreDirection(entryMitreAnchor, exitMitreAnchor, exitLine.p1());
-
-    auto exitMitre = intersectRayWithLine(exitMitreAnchor, dirExit, exitLine);
-
-    p.addPosition(exitMitre);
-    p.addPosition(exitLine.p1());
-
-    return p;
-}
-
-std::vector<std::pair<size_t, size_t>> pathPairs(
-    Edge fromEdge, const topology::LaneRange& laneRange, Edge toEdge) {
-    std::vector<std::pair<size_t, size_t>> pairs;
-    // leftmost entry to leftmost exit
-    pairs.push_back({laneRange.first(), 0});
-    // rightmost entry to rightmost exit
-    pairs.push_back({laneRange.last(), toEdge.exits().size() - 1});
-    // the rest are not considered because only the fringe connections affect
-    // the minimum intergreen time
-    return pairs;
+    switch (geometrySpec.type) {
+        default:
+        case topology::MovementGeometryType::LINE: {
+            path.addPosition(entryOffset);
+            path.addPosition(exitOffset);
+            break;
+        }
+        case topology::MovementGeometryType::QUAD_BEZIER: {
+            utils::Line entryLine(entry, entryOffset);
+            utils::Line exitLine(exit, exitOffset);
+            utils::Position controlPoint;
+            if (!entryLine.intersection(exitLine, controlPoint)) {
+                path.addPosition(entryOffset);
+                path.addPosition(exitOffset);
+                break;
+            }
+            path.addQuadraticBezier(entryOffset, exitOffset, controlPoint);
+            break;
+        }
+        case topology::MovementGeometryType::CUBIC_BEZIER: {
+            const auto& params =
+                std::get<topology::CubicBezierParams>(geometrySpec.params);
+            utils::Vector2 entryDir = (entryOffset - entry).normalized();
+            utils::Vector2 exitDir = (exitOffset - exit).normalized();
+            utils::Position controlPoint1 =
+                entryOffset + entryDir * params.control1Distance;
+            utils::Position controlPoint2 =
+                exitOffset + exitDir * params.control2Distance;
+            path.addCubicBezier(entryOffset, exitOffset, controlPoint1,
+                                controlPoint2);
+            break;
+        }
+    }
+    path.addPosition(exit);
+    return path;
 }
 
 std::vector<utils::Polyline> calculatePaths(
     Edge fromEdge, const topology::LaneRange& laneRange, Edge toEdge,
     const topology::MovementGeometrySpec& geometrySpec) {
     std::vector<utils::Polyline> movementPaths;
-    auto pairs = pathPairs(fromEdge, laneRange, toEdge);
 
-    for (auto [entryIdx, exitIdx] : pairs) {
-        auto entryAnchor = offsetAnchor(fromEdge.entries(), entryIdx,
-                                        /* fringe other */ laneRange.last(),
-                                        geometrySpec.entryOffset, true);
+    auto leftmostEntry = fromEdge.entries()[laneRange.first()];
+    auto rightmostEntry = fromEdge.entries()[laneRange.last()];
 
-        auto exitAnchor =
-            offsetAnchor(toEdge.exits(), exitIdx,
-                         /* fringe other */ 0, geometrySpec.exitOffset, false);
+    auto leftmostExit = toEdge.exits()[0];
+    auto rightmostExit = toEdge.exits()[toEdge.exits().size() - 1];
 
-        movementPaths.push_back(buildLinePath(fromEdge.entries()[entryIdx],
-                                              toEdge.exits()[exitIdx],
-                                              entryAnchor, exitAnchor));
+    auto entryAnchor = offsetAnchor(leftmostEntry, rightmostEntry);
+    auto exitAnchor = offsetAnchor(leftmostExit, rightmostExit);
+
+    auto entryDir = (leftmostEntry.p2() - leftmostEntry.p1()).normalized();
+    auto exitDir = (leftmostExit.p2() - leftmostExit.p1()).normalized();
+
+    auto entryOffsetAnchor = entryAnchor + entryDir * geometrySpec.entryOffset;
+    auto exitOffsetAnchor = exitAnchor - exitDir * geometrySpec.exitOffset;
+    // vector between anchors
+    auto bridge = (exitOffsetAnchor - entryOffsetAnchor).normalized();
+
+    // entry mitre direction
+    auto entryBisector = (-entryDir + bridge).normalized();
+
+    // exit mitre direction
+    auto exitBisector = ((-bridge) + exitDir).normalized();
+
+    DebugSink::drawLine(
+        utils::Line(entryOffsetAnchor, entryOffsetAnchor + entryDir), Qt::gray);
+    DebugSink::drawLine(
+        utils::Line(entryOffsetAnchor, entryOffsetAnchor + bridge),
+        Qt::magenta);
+    DebugSink::drawLine(
+        utils::Line(entryOffsetAnchor, entryOffsetAnchor + entryBisector),
+        Qt::blue);
+
+    DebugSink::drawLine(
+        utils::Line(exitOffsetAnchor, exitOffsetAnchor + exitDir), Qt::gray);
+    DebugSink::drawLine(
+        utils::Line(exitOffsetAnchor, exitOffsetAnchor - bridge), Qt::magenta);
+    DebugSink::drawLine(
+        utils::Line(exitOffsetAnchor, exitOffsetAnchor + exitBisector),
+        Qt::blue);
+
+    utils::Line entryOffsetMitreLine(entryOffsetAnchor,
+                                     entryOffsetAnchor + entryBisector);
+    utils::Line exitOffsetMitreLine(exitOffsetAnchor,
+                                    exitOffsetAnchor + exitBisector);
+
+    utils::Position leftmostEntryMitre;
+    if (!leftmostEntry.intersection(entryOffsetMitreLine, leftmostEntryMitre))
+        throw std::runtime_error("Mitre intersection failed");
+    utils::Position leftmostExitMitre;
+    if (!leftmostExit.intersection(exitOffsetMitreLine, leftmostExitMitre))
+        throw std::runtime_error("Mitre intersection failed");
+
+    movementPaths.push_back(buildPath(leftmostEntry.p1(), leftmostEntryMitre,
+                                      leftmostExitMitre, leftmostExit.p1(),
+                                      geometrySpec));
+
+    if (toEdge.exits().size() > 1) {
+        utils::Position rightmostEntryMitre;
+        if (!rightmostEntry.intersection(entryOffsetMitreLine,
+                                         rightmostEntryMitre))
+            throw std::runtime_error("Mitre intersection failed");
+        utils::Position rightmostExitMitre;
+        if (!rightmostExit.intersection(exitOffsetMitreLine,
+                                        rightmostExitMitre))
+            throw std::runtime_error("Mitre intersection failed");
+        movementPaths.push_back(
+            buildPath(rightmostEntry.p1(), rightmostEntryMitre,
+                      rightmostExitMitre, rightmostExit.p1(), geometrySpec));
     }
 
     return movementPaths;
@@ -282,10 +323,7 @@ Edge::Edge(std::vector<utils::Line> exits, std::vector<utils::Line> entries)
 
 #include <vector>
 
-#include "id.h"
 #include "utils/line.h"
-#include "utils/position.h"
-#include "utils/vector2.h"
 
 namespace geometry {
 
@@ -601,6 +639,7 @@ class ScopedIdGenerator {
 ////////////////////////////////////////////////////////////
 #include "network.h"
 
+// #include "topology/movement/movement_geometry_spec.h"
 #include "topology/movement/movement_geometry_spec.h"
 #include "topology/movement/movement_structure.h"
 #include "topology/node.h"
@@ -617,22 +656,28 @@ Network::Network() {
 
     edge(e12.first).entry().createLanes(1);
     edge(e12.first).exit().createLanes(2);
-    edge(e12.second).entry().createLanes(3);
+    edge(e12.second).entry().createLanes(3);  // from
     edge(e12.second).exit().createLanes(2);
     edge(e13.first).entry().createLanes(1);
-    edge(e13.first).exit().createLanes(4);
+    edge(e13.first).exit().createLanes(4);  // to
     edge(e13.second).entry().createLanes(3);
     edge(e13.second).exit().createLanes(2);
     edge(e14.first).entry().createLanes(1);
-    edge(e14.first).exit().createLanes(2);
+    edge(e14.first).exit().createLanes(2);  // to
     edge(e14.second).entry().createLanes(3);
     edge(e14.second).exit().createLanes(2);
 
     auto& n1 = node(i1.second);
     auto builder = n1.createMovementBuilder(*this);
-    builder.addMovement(e12.second, e13.first, {0, 1})
-        .addMovement(e12.second, e14.first, {2},
-                     topology::MovementGeometrySpec::line(7.0, 14.0));
+    builder.addMovement(
+        e12.second, e13.first, {0, 1},
+        topology::MovementGeometrySpec::cubicBezier(5.0, 5.0, 8.0, 8.0));
+    builder.addMovement(
+        e12.second, e14.first, {1, 2},
+        topology::MovementGeometrySpec::cubicBezier(5.0, 5.0, 8.0, 8.0));
+    builder.addMovement(
+        e12.second, e12.first, {0},
+        topology::MovementGeometrySpec::cubicBezier(5.0, 5.0, 8.0, 8.0));
 
     n1.setMovementStructure(builder.build());
 }
@@ -1090,8 +1135,8 @@ struct MovementGeometrySpec {
 
     MovementGeometryParams params;
 
-    static MovementGeometrySpec line(double entryOffset = 0.0,
-                                     double exitOffset = 0.0) {
+    static MovementGeometrySpec line(double entryOffset = 4.0,
+                                     double exitOffset = 4.0) {
         return MovementGeometrySpec{MovementGeometryType::LINE, entryOffset,
                                     exitOffset, LineParams{}};
     }
@@ -1123,7 +1168,10 @@ struct MovementGeometrySpec {
 // movement_structure.cpp
 #include "movement_structure.h"
 
+#include <qlogging.h>
+
 #include <algorithm>
+#include <numbers>
 #include <sstream>
 #include <stdexcept>
 
@@ -1170,6 +1218,13 @@ double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
     utils::Vector2 fromDirection =
         utils::Vector2::fromAngle(fromEdge.entry().heading());
 
+    // fallback - try getting a direction to a lane entry offset by unit vector.
+    if (movementDirection.isZero()) {
+        utils::Vector2 perpendicular = utils::Vector2::fromAngle(
+            toEdge.exit().heading() - std::numbers::pi / 2.0);
+        movementDirection = (toPos + perpendicular) - fromPos;
+    }
+
     return fromDirection.angleTo(movementDirection);
 }
 
@@ -1197,17 +1252,28 @@ bool validLaneUtilization(const std::vector<Movement>& movements,
     size_t currentMaxReached = 0;
     bool firstMovement = true;
 
+    int i = 0;
     for (const auto& m : movements) {
         size_t first = m.laneRange().first();
 
         if (firstMovement) {
-            if (first != 0) return false;
+            if (first != 0) {
+                qWarning() << "First movement does not start at lane 0.";
+                return false;
+            }
             firstMovement = false;
         } else if (first != currentMaxReached &&
                    first != currentMaxReached + 1) {
+            qWarning() << "WARNING: Movements are not contiguous. Invalid at "
+                          "movement index"
+                       << i << "from the left, where lane range starts from"
+                       << first << "but lane" << currentMaxReached
+                       << "was already reached during checks of previous "
+                          "movements.";
             return false;
         }
         currentMaxReached = m.laneRange().last();
+        i++;
     }
 
     // Final check: Did the last movement actually reach the edge of the road?
@@ -1430,6 +1496,50 @@ class Node {
 
 
 ////////////////////////////////////////////////////////////
+//// FILE: debug_sink.cpp
+////////////////////////////////////////////////////////////
+#include "debug_sink.h"
+
+#include <QGraphicsScene>
+
+QGraphicsScene* DebugSink::scene_ = nullptr;
+
+void DebugSink::setScene(QGraphicsScene* scene) { scene_ = scene; }
+
+void DebugSink::drawPoint(utils::Position p, QColor c) {
+    if (!scene_) return;
+    scene_->addEllipse(p.x - 0.5, p.y - 0.5, 1, 1, QPen(c, 0.5));
+}
+
+void DebugSink::drawLine(utils::Line l, QColor c) {
+    if (!scene_) return;
+    scene_->addLine(l.p1().x, l.p1().y, l.p2().x, l.p2().y, QPen(c, 0.2));
+}
+
+
+////////////////////////////////////////////////////////////
+//// FILE: debug_sink.h
+////////////////////////////////////////////////////////////
+#pragma once
+
+#include <QColor>
+
+#include "utils/line.h"
+#include "utils/position.h"
+
+class QGraphicsScene;
+
+struct DebugSink {
+    static void setScene(QGraphicsScene* scene);
+    static void drawPoint(utils::Position p, QColor c);
+    static void drawLine(utils::Line l, QColor c);
+
+   private:
+    static QGraphicsScene* scene_;
+};
+
+
+////////////////////////////////////////////////////////////
 //// FILE: main.cpp
 ////////////////////////////////////////////////////////////
 #include <QApplication>
@@ -1467,6 +1577,7 @@ int main(int argc, char* argv[]) {
 #include <QGraphicsView>
 #include <QPainterPath>
 
+#include "debug_sink.h"
 #include "geometry/calculators/edge_calculator.h"
 #include "geometry/calculators/movement_calculator.h"
 #include "network.h"
@@ -1474,10 +1585,12 @@ int main(int argc, char* argv[]) {
 #include "topology/intersection.h"
 #include "topology/node.h"
 
+
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     network_ = new Network();
 
     scene_ = new QGraphicsScene(this);
+    DebugSink::setScene(scene_);
 
     view_ = new NetworkView(this);
     view_->setScene(scene_);
@@ -1779,11 +1892,18 @@ struct LineEquation {
 };
 
 LineEquation toEquation(const Line& line) {
-    float a = line.p2().y - line.p1().y;
-    float b = line.p1().x - line.p2().x;
-    float c = line.p1().x * line.p2().y - line.p2().x * line.p1().y;
+    float x1 = line.p1().x;
+    float y1 = line.p1().y;
+    float x2 = line.p2().x;
+    float y2 = line.p2().y;
+
+    float a = y1 - y2;
+    float b = x2 - x1;
+    float c = x1 * y2 - x2 * y1;
+
     return {a, b, c};
 }
+
 }  // namespace
 
 Line::Line(Position p1, Position p2) : p1_(p1), p2_(p2) {}
@@ -1794,16 +1914,14 @@ Line::Line(Position p1, double heading, double length) : p1_(p1) {
 // Vector2 Line::direction() const { return p2_ - p1_; }
 
 bool Line::intersection(const Line& other, Position& intersection) const {
-    LineEquation eq1 = toEquation(*this);
-    LineEquation eq2 = toEquation(other);
+    auto eq1 = toEquation(*this);
+    auto eq2 = toEquation(other);
 
-    float det = eq1.a * eq2.b - eq2.a * eq1.b;
-    if (std::abs(det) < eps) {
-        return false;
-    }
+    double det = eq1.a * eq2.b - eq2.a * eq1.b;
+    if (std::abs(det) < eps) return false;
 
-    float x = (eq1.b * eq2.c - eq2.b * eq1.c) / det;
-    float y = (eq2.a * eq1.c - eq1.a * eq2.c) / det;
+    double x = (eq1.b * eq2.c - eq2.b * eq1.c) / det;
+    double y = (eq1.c * eq2.a - eq2.c * eq1.a) / det;
 
     intersection = Position(x, y);
     return true;
@@ -1946,6 +2064,18 @@ Polyline::Polyline(Position p1, Position p2, Position c1, Position c2,
 void Polyline::addPosition(Position position) {
     positions_.push_back(position);
 }
+
+void Polyline::addQuadraticBezier(Position p1, Position p2, Position c,
+                                  double tolerance) {
+    positions_.push_back(p1);
+    subdivideQuadraticBezier(p1, p2, c, tolerance, positions_);
+}
+
+void Polyline::addCubicBezier(Position p1, Position p2, Position c1,
+                              Position c2, double tolerance) {
+    positions_.push_back(p1);
+    subdivideCubicBezier(p1, p2, c1, c2, tolerance, positions_);
+}
 }  // namespace utils
 
 
@@ -1971,6 +2101,10 @@ class Polyline {
 
     void setPositions(std::vector<Position> positions);
     void addPosition(Position position);
+    void addQuadraticBezier(Position p1, Position p2, Position c,
+                            double tolerance = 0.05);
+    void addCubicBezier(Position p1, Position p2, Position c1, Position c2,
+                        double tolerance = 0.05);
 
     const std::vector<Position>& positions() const { return positions_; }
 
@@ -1997,6 +2131,10 @@ Position operator-(Position p, Vector2 v) { return {p.x - v.dx, p.y - v.dy}; }
 
 Vector2 operator-(Position a, Position b) { return {a.x - b.x, a.y - b.y}; }
 
+bool operator==(Position a, Position b) { return a.x == b.x && a.y == b.y; }
+
+bool operator!=(Position a, Position b) { return !(a == b); }
+
 }  // namespace utils
 
 
@@ -2018,6 +2156,8 @@ struct Position {
 Position operator+(Position p, Vector2 v);
 Position operator-(Position p, Vector2 v);
 Vector2 operator-(Position a, Position b);
+bool operator==(Position a, Position b);
+bool operator!=(Position a, Position b);
 
 }  // namespace utils
 
@@ -2061,6 +2201,11 @@ double Vector2::angleTo(Vector2 v) const {
     return std::atan2(cross(v), dot(v));
 }
 
+Vector2 Vector2::rotate(double radians) const {
+    return {dx * std::cos(radians) - dy * std::sin(radians),
+            dx * std::sin(radians) + dy * std::cos(radians)};
+}
+
 Vector2 operator+(Vector2 a, Vector2 b) { return {a.dx + b.dx, a.dy + b.dy}; }
 
 Vector2 operator-(Vector2 a, Vector2 b) { return {a.dx - b.dx, a.dy - b.dy}; }
@@ -2070,6 +2215,8 @@ Vector2 operator*(Vector2 v, double s) { return {v.dx * s, v.dy * s}; }
 Vector2 operator*(double s, Vector2 v) { return v * s; }
 
 Vector2 operator/(Vector2 v, double s) { return {v.dx / s, v.dy / s}; }
+
+Vector2 operator-(Vector2 v) { return {-v.dx, -v.dy}; }
 
 }  // namespace utils
 
@@ -2097,6 +2244,7 @@ struct Vector2 {
     double cross(Vector2 v) const;
     double angle() const;
     double angleTo(Vector2 v) const;
+    Vector2 rotate(double radians) const;
 
    private:
     constexpr static double eps = 1e-9;
@@ -2108,6 +2256,7 @@ Vector2 operator-(Vector2 a, Vector2 b);
 Vector2 operator*(Vector2 v, double s);
 Vector2 operator*(double s, Vector2 v);
 Vector2 operator/(Vector2 v, double s);
+Vector2 operator-(Vector2 v);
 
 }  // namespace utils
 

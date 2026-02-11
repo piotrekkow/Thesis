@@ -17,6 +17,10 @@ class Polyline {
 
     void setPositions(std::vector<Position> positions);
     void addPosition(Position position);
+    void addQuadraticBezier(Position p1, Position p2, Position c,
+                            double tolerance = 0.05);
+    void addCubicBezier(Position p1, Position p2, Position c1, Position c2,
+                        double tolerance = 0.05);
 
     const std::vector<Position>& positions() const { return positions_; }
 

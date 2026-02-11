@@ -94,4 +94,16 @@ Polyline::Polyline(Position p1, Position p2, Position c1, Position c2,
 void Polyline::addPosition(Position position) {
     positions_.push_back(position);
 }
+
+void Polyline::addQuadraticBezier(Position p1, Position p2, Position c,
+                                  double tolerance) {
+    positions_.push_back(p1);
+    subdivideQuadraticBezier(p1, p2, c, tolerance, positions_);
+}
+
+void Polyline::addCubicBezier(Position p1, Position p2, Position c1,
+                              Position c2, double tolerance) {
+    positions_.push_back(p1);
+    subdivideCubicBezier(p1, p2, c1, c2, tolerance, positions_);
+}
 }  // namespace utils

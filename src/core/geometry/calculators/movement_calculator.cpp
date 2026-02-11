@@ -32,9 +32,53 @@ utils::Position offsetAnchor(utils::Line& leftmost, utils::Line& rightmost) {
         utils::Vector2 lateral = (rightmost.p1() - leftmost.p1()) / 2.0;
         p = p + lateral;
     }
-
-    DebugSink::drawPoint(p, Qt::red);
     return p;
+}
+
+// pass entry/exit lines instead of positions to ensure correct cubic bezier
+// direction which could not be ensured with just (offset - start) due to mitre
+// calculations
+utils::Polyline buildPath(utils::Line entry, utils::Position entryOffset,
+                          utils::Position exitOffset, utils::Line exit,
+                          const topology::MovementGeometrySpec& geometrySpec) {
+    utils::Polyline path;
+    path.addPosition(entry.p1());
+
+    switch (geometrySpec.type) {
+        default:
+        case topology::MovementGeometryType::LINE: {
+            path.addPosition(entryOffset);
+            path.addPosition(exitOffset);
+            break;
+        }
+        case topology::MovementGeometryType::QUAD_BEZIER: {
+            utils::Line entryLine(entry.p1(), entryOffset);
+            utils::Line exitLine(exit.p1(), exitOffset);
+            utils::Position controlPoint;
+            if (!entryLine.intersection(exitLine, controlPoint)) {
+                path.addPosition(entryOffset);
+                path.addPosition(exitOffset);
+                break;
+            }
+            path.addQuadraticBezier(entryOffset, exitOffset, controlPoint);
+            break;
+        }
+        case topology::MovementGeometryType::CUBIC_BEZIER: {
+            const auto& params =
+                std::get<topology::CubicBezierParams>(geometrySpec.params);
+            utils::Vector2 entryDir = (entry.p2() - entry.p1()).normalized();
+            utils::Vector2 exitDir = (exit.p2() - exit.p1()).normalized();
+            utils::Position controlPoint1 =
+                entryOffset + entryDir * params.control1Distance;
+            utils::Position controlPoint2 =
+                exitOffset - exitDir * params.control2Distance;
+            path.addCubicBezier(entryOffset, exitOffset, controlPoint1,
+                                controlPoint2);
+            break;
+        }
+    }
+    path.addPosition(exit.p1());
+    return path;
 }
 
 std::vector<utils::Polyline> calculatePaths(
@@ -43,9 +87,7 @@ std::vector<utils::Polyline> calculatePaths(
     std::vector<utils::Polyline> movementPaths;
 
     auto leftmostEntry = fromEdge.entries()[laneRange.first()];
-    DebugSink::drawLine(leftmostEntry, Qt::red);
     auto rightmostEntry = fromEdge.entries()[laneRange.last()];
-    DebugSink::drawLine(rightmostEntry, Qt::red);
 
     auto leftmostExit = toEdge.exits()[0];
     auto rightmostExit = toEdge.exits()[toEdge.exits().size() - 1];
@@ -57,10 +99,7 @@ std::vector<utils::Polyline> calculatePaths(
     auto exitDir = (leftmostExit.p2() - leftmostExit.p1()).normalized();
 
     auto entryOffsetAnchor = entryAnchor + entryDir * geometrySpec.entryOffset;
-    DebugSink::drawPoint(entryOffsetAnchor, Qt::green);
     auto exitOffsetAnchor = exitAnchor - exitDir * geometrySpec.exitOffset;
-    DebugSink::drawPoint(exitOffsetAnchor, Qt::green);
-
     // vector between anchors
     auto bridge = (exitOffsetAnchor - entryOffsetAnchor).normalized();
 
@@ -98,15 +137,10 @@ std::vector<utils::Polyline> calculatePaths(
     utils::Position leftmostExitMitre;
     if (!leftmostExit.intersection(exitOffsetMitreLine, leftmostExitMitre))
         throw std::runtime_error("Mitre intersection failed");
-    DebugSink::drawPoint(leftmostEntryMitre, Qt::yellow);
-    DebugSink::drawPoint(leftmostExitMitre, Qt::red);
 
-    utils::Polyline polyLeft;
-    polyLeft.addPosition(leftmostEntry.p1());
-    polyLeft.addPosition(leftmostEntryMitre);
-    polyLeft.addPosition(leftmostExitMitre);
-    polyLeft.addPosition(leftmostExit.p1());
-    movementPaths.push_back(polyLeft);
+    movementPaths.push_back(buildPath(leftmostEntry, leftmostEntryMitre,
+                                      leftmostExitMitre, leftmostExit,
+                                      geometrySpec));
 
     if (toEdge.exits().size() > 1) {
         utils::Position rightmostEntryMitre;
@@ -117,12 +151,9 @@ std::vector<utils::Polyline> calculatePaths(
         if (!rightmostExit.intersection(exitOffsetMitreLine,
                                         rightmostExitMitre))
             throw std::runtime_error("Mitre intersection failed");
-        utils::Polyline polyRight;
-        polyRight.addPosition(rightmostEntry.p1());
-        polyRight.addPosition(rightmostEntryMitre);
-        polyRight.addPosition(rightmostExitMitre);
-        polyRight.addPosition(rightmostExit.p1());
-        movementPaths.push_back(polyRight);
+        movementPaths.push_back(buildPath(rightmostEntry, rightmostEntryMitre,
+                                          rightmostExitMitre, rightmostExit,
+                                          geometrySpec));
     }
 
     return movementPaths;

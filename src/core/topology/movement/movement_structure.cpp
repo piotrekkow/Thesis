@@ -1,7 +1,10 @@
 // movement_structure.cpp
 #include "movement_structure.h"
 
+#include <qlogging.h>
+
 #include <algorithm>
+#include <numbers>
 #include <sstream>
 #include <stdexcept>
 
@@ -48,24 +51,31 @@ double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
     utils::Vector2 fromDirection =
         utils::Vector2::fromAngle(fromEdge.entry().heading());
 
+    // fallback - try getting a direction to a lane entry offset by unit vector.
+    if (movementDirection.isZero()) {
+        // utils::Vector2 perpendicular = utils::Vector2::fromAngle(
+        //     toEdge.exit().heading() - std::numbers::pi / 2.0);
+        // movementDirection = (toPos + perpendicular) - fromPos;
+        return -std::numbers::pi;
+    }
+
     return fromDirection.angleTo(movementDirection);
 }
 
 void sortByHeading(std::vector<Movement>& movements) {
     std::sort(movements.begin(), movements.end(),
               [](const Movement& a, const Movement& b) {
-                  return a.heading() < b.heading();  // sort descending
+                  return a.heading() < b.heading();  // descending
               });
 }
 
 auto findNewMovementPosition(std::vector<Movement>& movements,
                              double newHeading) {
-    auto pos = std::lower_bound(movements.begin(), movements.end(), newHeading,
-                                [](const Movement& m, double heading) {
-                                    return m.heading() < heading;
-                                });
-
-    return pos;
+    return std::lower_bound(movements.begin(), movements.end(), newHeading,
+                            [](const Movement& m, double heading) {
+                                return m.heading() <
+                                       heading;  // must match descending order
+                            });
 }
 
 bool validLaneUtilization(const std::vector<Movement>& movements,
@@ -75,17 +85,28 @@ bool validLaneUtilization(const std::vector<Movement>& movements,
     size_t currentMaxReached = 0;
     bool firstMovement = true;
 
+    int i = 0;
     for (const auto& m : movements) {
         size_t first = m.laneRange().first();
 
         if (firstMovement) {
-            if (first != 0) return false;
+            if (first != 0) {
+                qWarning() << "First movement does not start at lane 0.";
+                return false;
+            }
             firstMovement = false;
         } else if (first != currentMaxReached &&
                    first != currentMaxReached + 1) {
+            qWarning() << "WARNING: Movements are not contiguous. Invalid at "
+                          "movement index"
+                       << i << "from the left, where lane range starts from"
+                       << first << "but lane" << currentMaxReached
+                       << "was already reached during checks of previous "
+                          "movements.";
             return false;
         }
         currentMaxReached = m.laneRange().last();
+        i++;
     }
 
     // Final check: Did the last movement actually reach the edge of the road?
@@ -151,9 +172,16 @@ MovementStructure MovementStructure::Builder::build() {
     for (const auto& [edgeId, movements] : movements_) {
         if (!validLaneUtilization(movements,
                                   network_.edge(edgeId).entry().laneCount())) {
+            qWarning() << "WARNING: Movement from edge" << edgeId
+                       << "has following headings: ";
+            int i = 0;
+            for (const auto& m : movements) {
+                qWarning() << "Movement" << i << "heading:" << m.heading();
+                i++;
+            }
             std::ostringstream msg;
             msg << "In movement structure at node " << nodeId_ << " from "
-                << edgeId << " not all lanes are used.";
+                << edgeId << " not all, or too many lanes are used.";
             throw std::logic_error(msg.str());
         }
     }

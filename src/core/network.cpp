@@ -1,6 +1,7 @@
 #include "network.h"
 
 // #include "topology/movement/movement_geometry_spec.h"
+#include "topology/movement/movement_geometry_spec.h"
 #include "topology/movement/movement_structure.h"
 #include "topology/node.h"
 
@@ -29,8 +30,31 @@ Network::Network() {
 
     auto& n1 = node(i1.second);
     auto builder = n1.createMovementBuilder(*this);
-    builder.addMovement(e12.second, e13.first, {0, 1});
-    builder.addMovement(e12.second, e14.first, {1, 2});
+
+    // east
+    builder
+        .addMovement(
+            e12.second, e13.first, {0, 1},
+            topology::MovementGeometrySpec::cubicBezier(5.0, 5.0, 8.0, 8.0))
+        .addMovement(e12.second, e14.first, {1, 2},
+                     topology::MovementGeometrySpec::quadraticBezier())
+        .addMovement(
+            e12.second, e12.first, {0},
+            topology::MovementGeometrySpec::cubicBezier(5.0, 5.0, 8.0, 8.0))
+        .addMovement(
+            e13.second, e13.first, {0},
+            topology::MovementGeometrySpec::cubicBezier(4.0, 7.0, 8.0, 8.0))
+        .addMovement(e13.second, e14.first, {1},
+                     topology::MovementGeometrySpec::quadraticBezier(5.0, 5.0))
+        .addMovement(
+            e13.second, e12.first, {2},
+            topology::MovementGeometrySpec::cubicBezier(5.0, 5.0, 8.0, 8.0))
+        .addMovement(e14.second, e14.first, {0},
+                     topology::MovementGeometrySpec::cubicBezier())
+        .addMovement(e14.second, e12.first, {1},
+                     topology::MovementGeometrySpec::quadraticBezier(1.0, 1.0))
+        .addMovement(e14.second, e13.first, {2},
+                     topology::MovementGeometrySpec::quadraticBezier(1.0, 1.0));
 
     n1.setMovementStructure(builder.build());
 }
