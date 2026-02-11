@@ -31,6 +31,8 @@ add_executable(Thesis
     src/core/topology/lane_group.h
     src/core/id.h
     src/core/id_generator.h
+    src/core/movement_it.h
+
     src/utils/vector2.h
     src/utils/vector2.cpp
     src/utils/position.h
@@ -41,10 +43,12 @@ add_executable(Thesis
     src/utils/line.cpp
     src/utils/polyline_utils.h
     src/utils/polyline_utils.cpp
+
     src/ui/network_view.h
     src/ui/network_view.cpp
     src/ui/network_scene.h
     src/ui/network_scene.cpp
+
     src/core/topology/edge.h
     src/core/topology/edge.cpp
     src/core/topology/lane.h
@@ -57,6 +61,7 @@ add_executable(Thesis
     src/core/topology/movement/movement_structure.h
     src/core/topology/movement/movement_structure.cpp
     src/core/topology/crossing.h
+    
     src/core/geometry/edge.h
     src/core/geometry/edge.cpp
     src/core/geometry/node.h
