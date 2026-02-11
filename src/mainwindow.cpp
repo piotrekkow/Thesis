@@ -4,6 +4,8 @@
 #include <QGraphicsView>
 #include <QPainterPath>
 
+#include "core/collisions/collision_map.h"
+#include "core/geometry/movement_map.h"
 #include "debug_sink.h"
 #include "geometry/calculators/edge_calculator.h"
 #include "geometry/calculators/movement_calculator.h"
@@ -11,7 +13,6 @@
 #include "network_view.h"
 #include "topology/intersection.h"
 #include "topology/node.h"
-
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     network_ = new Network();
@@ -53,12 +54,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 continue;  // Skip nodes without movement structure
             }
 
-            for (const auto& fromEdgeId : node.incomingEdges()) {
-                auto groups = geometry::MovementCalculator::compute(
-                    *network_, fromEdgeId, id);
+            auto movementMap = geometry::MovementMap::build(*network_, id);
 
-                for (const auto& [_, mov] : groups) {
-                    for (const auto& path : mov.paths()) {
+            // draw movement paths
+            for (const auto& [fromId, movements] : movementMap.movementMap()) {
+                for (const auto& [toId, movement] : movements) {
+                    for (const auto& path : movement.paths()) {
                         QPainterPath ppath;
                         bool first = true;
                         for (const auto& p : path.positions()) {
@@ -69,7 +70,20 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                                 ppath.lineTo(QPointF(p.x, p.y));
                             }
                         }
-                        scene_->addPath(ppath, QPen(Qt::cyan, 0.1));
+                        scene_->addPath(ppath, QPen(Qt::darkCyan, 0.1));
+                    }
+                }
+            }
+
+            auto collisionMap = CollisionMap::build(movementMap);
+            // draw collision points
+            for (const auto& [fromId, entryCollisions] :
+                 collisionMap.collisionMap()) {
+                for (const auto& [toId, movCollisions] : entryCollisions) {
+                    for (const auto& cp : movCollisions.points()) {
+                        scene_->addEllipse(cp.position().x - 0.1,
+                                           cp.position().y - 0.1, 0.2, 0.2,
+                                           QPen(Qt::white, 0.1));
                     }
                 }
             }

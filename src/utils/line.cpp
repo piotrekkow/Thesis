@@ -7,18 +7,18 @@
 namespace utils {
 namespace {
 struct LineEquation {
-    float a, b, c;  // ax + by + c = 0
+    double a, b, c;  // ax + by + c = 0
 };
 
 LineEquation toEquation(const Line& line) {
-    float x1 = line.p1().x;
-    float y1 = line.p1().y;
-    float x2 = line.p2().x;
-    float y2 = line.p2().y;
+    double x1 = line.p1().x;
+    double y1 = line.p1().y;
+    double x2 = line.p2().x;
+    double y2 = line.p2().y;
 
-    float a = y1 - y2;
-    float b = x2 - x1;
-    float c = x1 * y2 - x2 * y1;
+    double a = y1 - y2;
+    double b = x2 - x1;
+    double c = x1 * y2 - x2 * y1;
 
     return {a, b, c};
 }

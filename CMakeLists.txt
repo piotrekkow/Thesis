@@ -39,6 +39,8 @@ add_executable(Thesis
     src/utils/polyline.cpp
     src/utils/line.h
     src/utils/line.cpp
+    src/utils/polyline_utils.h
+    src/utils/polyline_utils.cpp
     src/ui/network_view.h
     src/ui/network_view.cpp
     src/ui/network_scene.h
@@ -60,10 +62,17 @@ add_executable(Thesis
     src/core/geometry/node.h
     src/core/geometry/geometry.h
     src/core/geometry/movement.h
+    src/core/geometry/movement_map.h
+    src/core/geometry/movement_map.cpp
     src/core/geometry/calculators/edge_calculator.h
     src/core/geometry/calculators/edge_calculator.cpp
     src/core/geometry/calculators/movement_calculator.h
     src/core/geometry/calculators/movement_calculator.cpp
+
+    src/core/collisions/collision_point.h
+    src/core/collisions/movement_collisions.h
+    src/core/collisions/collision_map.h
+    src/core/collisions/collision_map.cpp
 )
 
 target_link_libraries(Thesis PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
@@ -73,6 +82,7 @@ target_include_directories(Thesis PRIVATE
     ${CMAKE_SOURCE_DIR}/src/utils
     ${CMAKE_SOURCE_DIR}/src/ui
     ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_SOURCE_DIR}/src/core/collisions
 )
 
 if(WIN32)

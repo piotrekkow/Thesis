@@ -43,7 +43,7 @@ Network::Network() {
             topology::MovementGeometrySpec::cubicBezier(5.0, 5.0, 8.0, 8.0))
         .addMovement(
             e13.second, e13.first, {0},
-            topology::MovementGeometrySpec::cubicBezier(4.0, 7.0, 8.0, 8.0))
+            topology::MovementGeometrySpec::cubicBezier(7.0, 4.0, 8.0, 8.0))
         .addMovement(e13.second, e14.first, {1},
                      topology::MovementGeometrySpec::quadraticBezier(5.0, 5.0))
         .addMovement(
