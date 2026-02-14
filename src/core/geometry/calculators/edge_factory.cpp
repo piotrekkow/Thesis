@@ -1,4 +1,4 @@
-#include "geometry/calculators/edge_calculator.h"
+#include "geometry/calculators/edge_factory.h"
 
 #include <numbers>
 
@@ -35,7 +35,7 @@ std::vector<utils::Line> laneUnitBoundVectors(utils::Position handle,
 }
 }  // namespace
 
-Edge EdgeCalculator::compute(const Network& network, EdgeId id) {
+Edge EdgeFactory::build(const Network& network, EdgeId id) {
     const topology::Edge& topo = network.edge(id);
     const auto& x = topo.exit();
     const auto& e = topo.entry();

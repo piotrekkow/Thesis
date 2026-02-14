@@ -31,7 +31,6 @@ add_executable(Thesis
     src/core/topology/lane_group.h
     src/core/id.h
     src/core/id_generator.h
-    src/core/movement_it.h
 
     src/utils/vector2.h
     src/utils/vector2.cpp
@@ -61,7 +60,7 @@ add_executable(Thesis
     src/core/topology/movement/movement_structure.h
     src/core/topology/movement/movement_structure.cpp
     src/core/topology/crossing.h
-    
+
     src/core/geometry/edge.h
     src/core/geometry/edge.cpp
     src/core/geometry/node.h
@@ -69,10 +68,12 @@ add_executable(Thesis
     src/core/geometry/movement.h
     src/core/geometry/movement_map.h
     src/core/geometry/movement_map.cpp
-    src/core/geometry/calculators/edge_calculator.h
-    src/core/geometry/calculators/edge_calculator.cpp
+    src/core/geometry/calculators/edge_factory.h
+    src/core/geometry/calculators/edge_factory.cpp
     src/core/geometry/calculators/movement_calculator.h
     src/core/geometry/calculators/movement_calculator.cpp
+    src/core/geometry/calculators/crossing_factory.h
+    src/core/geometry/calculators/crossing_factory.cpp
 
     src/core/collisions/collision_point.h
     src/core/collisions/movement_collisions.h

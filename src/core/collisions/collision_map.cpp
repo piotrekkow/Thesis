@@ -60,8 +60,8 @@ CollisionMap CollisionMap::build(geometry::MovementMap& movementMap) {
                                                pi.point));
 
                             // Also add the symmetric record *for movement B*
-                            // once: clearing = distance along B (distanceB)
-                            // entering  = distance along A (distanceA)
+                            // once: entering = distance along B (distanceB)
+                            // clearing  = distance along A (distanceA)
                             if (addSymmetricForB) {
                                 cmap.collisionMap_[fromB][toB]
                                     .addCollisionPoint(CollisionPoint(

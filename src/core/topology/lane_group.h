@@ -10,7 +10,10 @@ class LaneGroup {
    public:
     LaneGroup(utils::Position position, double heading,
               std::vector<double> laneWidths = {})
-        : position_(position), heading_(heading), laneWidths_(laneWidths) {}
+        : position_(position),
+          heading_(heading),
+          speedLimit_(),
+          laneWidths_(laneWidths) {}
     ~LaneGroup() = default;
 
     LaneGroup(const LaneGroup&) = delete;
@@ -31,6 +34,7 @@ class LaneGroup {
     utils::Position
         position_;  // position relative to position of node exit feeds into
     double heading_;
+    double speedLimit_;
 
     std::vector<double> laneWidths_;
 };

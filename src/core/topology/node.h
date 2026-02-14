@@ -34,6 +34,14 @@ class Node {
     void setMovementStructure(MovementStructure&& structure);
     const std::optional<MovementStructure>& movementStructure() const;
 
+    const std::unordered_map<CrossingId, Crossing>& crossings() const {
+        return crossings_;
+    }
+    const Crossing& crossing(CrossingId id) const { return crossings_.at(id); }
+
+    CrossingId createCrossing(utils::Position p1, utils::Position p2,
+                              double width);
+
    private:
     NodeId id_;
 

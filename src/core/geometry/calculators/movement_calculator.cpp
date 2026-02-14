@@ -6,7 +6,7 @@
 #include <utility>
 
 #include "debug_sink.h"
-#include "geometry/calculators/edge_calculator.h"
+#include "geometry/calculators/edge_factory.h"
 #include "geometry/edge.h"
 #include "geometry/movement.h"
 #include "network.h"
@@ -183,8 +183,8 @@ std::unordered_map<EdgeId, Movement> MovementCalculator::compute(
     std::unordered_map<EdgeId, Movement> result;
     for (const auto& m : movements) {
         auto paths = calculatePaths(
-            geometry::EdgeCalculator::compute(network, fromId), m.laneRange(),
-            geometry::EdgeCalculator::compute(network, m.toEdge()),
+            geometry::EdgeFactory::build(network, fromId), m.laneRange(),
+            geometry::EdgeFactory::build(network, m.toEdge()),
             m.geometrySpec());
 
         result.insert({m.toEdge(), Movement(std::move(paths))});

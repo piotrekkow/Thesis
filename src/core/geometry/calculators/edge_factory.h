@@ -7,9 +7,9 @@ class Network;
 
 namespace geometry {
 
-class EdgeCalculator {
+class EdgeFactory {
    public:
-    static Edge compute(const Network& network, EdgeId id);
+    static Edge build(const Network& network, EdgeId id);
 
    private:
     static std::vector<utils::Position> lanePositions(

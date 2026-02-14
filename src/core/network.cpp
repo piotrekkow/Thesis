@@ -11,9 +11,9 @@ Network::Network() {
     auto i3 = createIntersection();
     auto i4 = createIntersection();
 
-    auto e12 = createTwoWayEdge(i1.second, {20, 10}, i2.second, {100, 50});
-    auto e13 = createTwoWayEdge(i1.second, {-20, -20}, i3.second, {-100, -100});
-    auto e14 = createTwoWayEdge(i1.second, {20, -20}, i4.second, {100, -100});
+    auto e12 = createTwoWayEdge(i1.second, {25, 20}, i2.second, {100, 70});
+    auto e13 = createTwoWayEdge(i1.second, {-25, -25}, i3.second, {-100, -100});
+    auto e14 = createTwoWayEdge(i1.second, {25, -25}, i4.second, {100, -100});
 
     edge(e12.first).entry().createLanes(1);
     edge(e12.first).exit().createLanes(2);
@@ -31,32 +31,41 @@ Network::Network() {
     auto& n1 = node(i1.second);
     auto builder = n1.createMovementBuilder(*this);
 
+    double offset1 = 12.0;
+    double coffset = offset1 + 4.0;
+
     // east
     builder
+        .addMovement(e12.second, e13.first, {0, 1},
+                     topology::MovementGeometrySpec::cubicBezier(
+                         offset1, offset1, coffset, coffset))
         .addMovement(
-            e12.second, e13.first, {0, 1},
-            topology::MovementGeometrySpec::cubicBezier(5.0, 5.0, 8.0, 8.0))
-        .addMovement(e12.second, e14.first, {1, 2},
-                     topology::MovementGeometrySpec::quadraticBezier())
+            e12.second, e14.first, {1, 2},
+            topology::MovementGeometrySpec::quadraticBezier(offset1, offset1))
+        .addMovement(e12.second, e12.first, {0},
+                     topology::MovementGeometrySpec::cubicBezier(
+                         offset1, offset1, coffset, coffset))
+        .addMovement(e13.second, e13.first, {0},
+                     topology::MovementGeometrySpec::cubicBezier(
+                         offset1, offset1, coffset, coffset))
         .addMovement(
-            e12.second, e12.first, {0},
-            topology::MovementGeometrySpec::cubicBezier(5.0, 5.0, 8.0, 8.0))
-        .addMovement(
-            e13.second, e13.first, {0},
-            topology::MovementGeometrySpec::cubicBezier(7.0, 4.0, 8.0, 8.0))
-        .addMovement(e13.second, e14.first, {1},
-                     topology::MovementGeometrySpec::quadraticBezier(5.0, 5.0))
-        .addMovement(
-            e13.second, e12.first, {2},
-            topology::MovementGeometrySpec::cubicBezier(5.0, 5.0, 8.0, 8.0))
+            e13.second, e14.first, {1},
+            topology::MovementGeometrySpec::quadraticBezier(offset1, offset1))
+        .addMovement(e13.second, e12.first, {2},
+                     topology::MovementGeometrySpec::cubicBezier(
+                         offset1, offset1, coffset, coffset))
         .addMovement(e14.second, e14.first, {0},
                      topology::MovementGeometrySpec::cubicBezier())
-        .addMovement(e14.second, e12.first, {1},
-                     topology::MovementGeometrySpec::quadraticBezier(1.0, 1.0))
-        .addMovement(e14.second, e13.first, {2},
-                     topology::MovementGeometrySpec::quadraticBezier(1.0, 1.0));
+        .addMovement(
+            e14.second, e12.first, {1},
+            topology::MovementGeometrySpec::quadraticBezier(offset1, offset1))
+        .addMovement(
+            e14.second, e13.first, {2},
+            topology::MovementGeometrySpec::quadraticBezier(offset1, offset1));
 
     n1.setMovementStructure(builder.build());
+
+    n1.createCrossing(utils::Position(18, 15), utils::Position(24.5, 6), 5.0);
 }
 
 std::pair<IntersectionId, NodeId> Network::createIntersection() {
