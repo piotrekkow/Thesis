@@ -1,4 +1,4 @@
-#include "geometry/calculators/movement_calculator.h"
+#include "geometry/calculators/movement_factory.h"
 
 #include <qdebug.h>
 #include <qnamespace.h>
@@ -158,38 +158,50 @@ std::vector<utils::Polyline> calculatePaths(
 
     return movementPaths;
 }
-
 }  // namespace
 
-std::unordered_map<EdgeId, Movement> MovementCalculator::compute(
-    const Network& network, EdgeId fromId, NodeId nodeId) {
-    if (!network.node(nodeId).movementStructure().has_value()) {
-        std::ostringstream msg;
-        msg << "Node " << nodeId
-            << " has no movement structure for geometry calculation.";
-        throw std::runtime_error(msg.str());
-    }
+// std::unordered_map<EdgeId, Movement> MovementCalculator::compute(
+//     const Network& network, EdgeId fromId, NodeId nodeId) {
+//     if (!network.node(nodeId).movementStructure().has_value()) {
+//         std::ostringstream msg;
+//         msg << "Node " << nodeId
+//             << " has no movement structure for geometry calculation.";
+//         throw std::runtime_error(msg.str());
+//     }
 
-    const auto& movementMap =
-        network.node(nodeId).movementStructure().value().movements();
+//     const auto& movementMap =
+//         network.node(nodeId).movementStructure().value().movements();
 
-    auto it = movementMap.find(fromId);
-    if (it == movementMap.end()) {
-        return {};  // Return empty map if no movements for this edge
-    }
+//     auto it = movementMap.find(fromId);
+//     if (it == movementMap.end()) {
+//         return {};  // Return empty map if no movements for this edge
+//     }
 
-    const std::vector<topology::Movement>& movements = it->second;
+//     const std::vector<topology::Movement>& movements = it->second;
 
-    std::unordered_map<EdgeId, Movement> result;
-    for (const auto& m : movements) {
+//     std::unordered_map<EdgeId, Movement> result;
+//     for (const auto& m : movements) {
+//         auto paths = calculatePaths(
+//             geometry::EdgeFactory::build(network, fromId), m.laneRange(),
+//             geometry::EdgeFactory::build(network, m.toEdge()),
+//             m.geometrySpec());
+
+//         result.insert({m.toEdge(), Movement(std::move(paths))});
+//     }
+
+//     return result;
+// }
+
+MovementMap MovementFactory::build(
+    const Network& network, const topology::MovementStructure& mStructure) {
+    std::unordered_map<MovementId, Movement> movements;
+    for (const auto& [mId, m] : mStructure.movements()) {
         auto paths = calculatePaths(
-            geometry::EdgeFactory::build(network, fromId), m.laneRange(),
+            geometry::EdgeFactory::build(network, m.fromEdge()), m.laneRange(),
             geometry::EdgeFactory::build(network, m.toEdge()),
             m.geometrySpec());
-
-        result.insert({m.toEdge(), Movement(std::move(paths))});
+        movements.emplace(mId, Movement(std::move(paths)));
     }
-
-    return result;
+    return MovementMap(std::move(movements));
 }
 }  // namespace geometry

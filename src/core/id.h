@@ -163,8 +163,10 @@ struct EdgeTag {};
 struct NodeTag {};
 struct IntersectionTag {};
 struct CrossingTag {};
+struct MovementTag {};
 
 using IntersectionId = Id<IntersectionTag, void>;
 using EdgeId = Id<EdgeTag, void>;
 using NodeId = Id<NodeTag, IntersectionId>;
 using CrossingId = Id<CrossingTag, NodeId>;
+using MovementId = Id<MovementTag, NodeId>;

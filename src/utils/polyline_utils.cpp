@@ -27,14 +27,50 @@ bool pointOnSegment(Position p, Position a, Position b, double eps = 1e-6) {
     return std::abs(cross) <= eps * std::sqrt(ab_len_sq);
 }
 
-bool segmentIntersection(Position a1, Position a2, Position b1, Position b2,
-                         Position& out) {
-    Line la(a1, a2);
-    Line lb(b1, b2);
+bool segmentIntersectionInclusive(Position a1, Position a2, Position b1,
+                                  Position b2, Position& out) {
+    Vector2 r = a2 - a1;
+    Vector2 s = b2 - b1;
 
-    if (!la.intersection(lb, out)) return false;
+    double rxs = r.dx * s.dy - r.dy * s.dx;
+    Vector2 qp = b1 - a1;
+    double qpxr = qp.dx * r.dy - qp.dy * r.dx;
 
-    return pointOnSegment(out, a1, a2) && pointOnSegment(out, b1, b2);
+    const double eps = 1e-6;
+
+    // CASE 1 — collinear
+    if (std::abs(rxs) < eps && std::abs(qpxr) < eps) {
+        double r_len_sq = dot(r, r);
+        if (r_len_sq < eps) return false;
+
+        // project B endpoints onto A
+        double t0 = dot(b1 - a1, r) / r_len_sq;
+        double t1 = dot(b2 - a1, r) / r_len_sq;
+
+        if (t0 > t1) std::swap(t0, t1);
+
+        // check overlap
+        if (t1 < -eps || t0 > 1.0 + eps) return false;
+
+        // first overlap along A
+        double t = std::max(0.0, t0);
+        out = a1 + r * t;
+        return true;
+    }
+
+    // CASE 2 — parallel but not collinear
+    if (std::abs(rxs) < eps) return false;
+
+    // CASE 3 — proper intersection
+    double t = (qp.dx * s.dy - qp.dy * s.dx) / rxs;
+    double u = (qp.dx * r.dy - qp.dy * r.dx) / rxs;
+
+    if (t >= -eps && t <= 1.0 + eps && u >= -eps && u <= 1.0 + eps) {
+        out = a1 + r * t;
+        return true;
+    }
+
+    return false;
 }
 
 double segmentLength(Position a, Position b) { return length(b - a); }
@@ -63,7 +99,7 @@ std::optional<PolylineIntersection> firstIntersection(const Polyline& A,
 
             Position intersection;
 
-            if (segmentIntersection(a1, a2, b1, b2, intersection)) {
+            if (segmentIntersectionInclusive(a1, a2, b1, b2, intersection)) {
                 // compute local distances inside segments
                 double distA = accumulatedA + segmentLength(a1, intersection);
                 double distB = accumulatedB + segmentLength(b1, intersection);

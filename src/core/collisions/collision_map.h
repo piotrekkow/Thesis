@@ -5,26 +5,24 @@
 #include "id.h"
 #include "movement_collisions.h"
 
+namespace topology {
+class MovementStructure;
+}
+
 namespace geometry {
 class MovementMap;
 }
 
 class CollisionMap {
    public:
-    static CollisionMap build(geometry::MovementMap& movementMap);
-    const std::unordered_map<EdgeId, MovementCollisions>* tryFrom(
-        EdgeId from) const;
-    const MovementCollisions* tryFind(EdgeId from, EdgeId to) const;
+    static CollisionMap build(const geometry::MovementMap& geometryMap,
+                              const topology::MovementStructure& mStructure);
 
-    const std::unordered_map<EdgeId,
-                             std::unordered_map<EdgeId, MovementCollisions>>&
-    collisionMap() const {
-        return collisionMap_;
+    const std::unordered_map<MovementId, MovementCollisions>& map() const {
+        return movementCollisions_;
     }
+    const MovementCollisions* tryFind(MovementId movementId) const;
 
    private:
-    // map of key: fromId (entering) edges and value: (map of key: toId
-    // (exiting) edges and value: movement collisions)
-    std::unordered_map<EdgeId, std::unordered_map<EdgeId, MovementCollisions>>
-        collisionMap_;
+    std::unordered_map<MovementId, MovementCollisions> movementCollisions_;
 };

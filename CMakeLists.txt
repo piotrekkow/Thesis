@@ -70,8 +70,8 @@ add_executable(Thesis
     src/core/geometry/movement_map.cpp
     src/core/geometry/calculators/edge_factory.h
     src/core/geometry/calculators/edge_factory.cpp
-    src/core/geometry/calculators/movement_calculator.h
-    src/core/geometry/calculators/movement_calculator.cpp
+    src/core/geometry/calculators/movement_factory.h
+    src/core/geometry/calculators/movement_factory.cpp
     src/core/geometry/calculators/crossing_factory.h
     src/core/geometry/calculators/crossing_factory.cpp
 

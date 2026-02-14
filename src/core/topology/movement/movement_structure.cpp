@@ -31,16 +31,6 @@ bool validateLaneSharing(const std::vector<Movement>& movements) {
     return true;
 }
 
-bool validLaneSharing(const std::vector<Movement>& movements,
-                      LaneRange laneRange) {
-    for (const auto& movement : movements) {
-        if (movement.laneRange().sharedLaneCount(laneRange) > 1) {
-            return false;
-        }
-    }
-    return true;
-}
-
 double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
     Edge& fromEdge = network.edge(from);
     Edge& toEdge = network.edge(to);
@@ -76,41 +66,6 @@ auto findNewMovementPosition(std::vector<Movement>& movements,
                                 return m.heading() <
                                        heading;  // must match descending order
                             });
-}
-
-bool validLaneUtilization(const std::vector<Movement>& movements,
-                          size_t laneCount) {
-    if (movements.empty() || laneCount == 0) return false;
-
-    size_t currentMaxReached = 0;
-    bool firstMovement = true;
-
-    int i = 0;
-    for (const auto& m : movements) {
-        size_t first = m.laneRange().first();
-
-        if (firstMovement) {
-            if (first != 0) {
-                qWarning() << "First movement does not start at lane 0.";
-                return false;
-            }
-            firstMovement = false;
-        } else if (first != currentMaxReached &&
-                   first != currentMaxReached + 1) {
-            qWarning() << "WARNING: Movements are not contiguous. Invalid at "
-                          "movement index"
-                       << i << "from the left, where lane range starts from"
-                       << first << "but lane" << currentMaxReached
-                       << "was already reached during checks of previous "
-                          "movements.";
-            return false;
-        }
-        currentMaxReached = m.laneRange().last();
-        i++;
-    }
-
-    // Final check: Did the last movement actually reach the edge of the road?
-    return currentMaxReached == laneCount - 1;
 }
 
 bool validLaneRange(const LaneRange& lr, size_t exitLaneCount) {
@@ -150,10 +105,10 @@ MovementStructure::Builder& MovementStructure::Builder::addMovement(
         throw std::invalid_argument(msg.str());
     }
 
-    auto& movements = movements_[from];
+    auto& orderedIds = movementsByEdge_[from];
 
-    if (!movements.empty()) {
-        if (!validLaneSharing(movements, laneRange)) {
+    if (!orderedIds.empty()) {
+        if (!validLaneSharing(orderedIds, laneRange)) {
             std::ostringstream msg;
             msg << "Proposed movements at " << nodeId_ << " from " << from
                 << " share more than 1 lane with each other.";
@@ -162,21 +117,31 @@ MovementStructure::Builder& MovementStructure::Builder::addMovement(
     }
 
     double newHeading = edgeToEdgeHeading(network_, from, to);
-    auto pos = findNewMovementPosition(movements, newHeading);
-    movements.emplace(pos, from, laneRange, to, newHeading, geometrySpec);
+
+    auto pos =
+        std::lower_bound(orderedIds.begin(), orderedIds.end(), newHeading,
+                         [this](MovementId id, double heading) {
+                             return movements_.at(id).heading() < heading;
+                         });
+
+    MovementId newId = movementIdGen_.next(nodeId_);
+    movements_.emplace(newId,
+                       Movement(from, laneRange, to, newHeading, geometrySpec));
+    orderedIds.emplace(pos, newId);
 
     return *this;
 }
 
 MovementStructure MovementStructure::Builder::build() {
-    for (const auto& [edgeId, movements] : movements_) {
+    for (const auto& [edgeId, movements] : movementsByEdge_) {
         if (!validLaneUtilization(movements,
                                   network_.edge(edgeId).entry().laneCount())) {
             qWarning() << "WARNING: Movement from edge" << edgeId
                        << "has following headings: ";
             int i = 0;
             for (const auto& m : movements) {
-                qWarning() << "Movement" << i << "heading:" << m.heading();
+                qWarning() << "Movement" << i
+                           << "heading:" << movements_.at(m).heading();
                 i++;
             }
             std::ostringstream msg;
@@ -185,12 +150,15 @@ MovementStructure MovementStructure::Builder::build() {
             throw std::logic_error(msg.str());
         }
     }
-    return MovementStructure(std::move(movements_));
+    return MovementStructure(std::move(movements_),
+                             std::move(movementsByEdge_));
 }
 
 MovementStructure::MovementStructure(
-    std::unordered_map<EdgeId, std::vector<Movement>> movements)
-    : movements_(std::move(movements)) {}
+    std::unordered_map<MovementId, Movement> movements,
+    std::unordered_map<EdgeId, std::vector<MovementId>> movementsByEdge)
+    : movements_(std::move(movements)),
+      movementsByEdge_(std::move(movementsByEdge)) {}
 
 const std::vector<EdgeId>& MovementStructure::Builder::incomingEdges() const {
     return network_.node(nodeId_).incomingEdges();
@@ -198,6 +166,53 @@ const std::vector<EdgeId>& MovementStructure::Builder::incomingEdges() const {
 
 const std::vector<EdgeId>& MovementStructure::Builder::outgoingEdges() const {
     return network_.node(nodeId_).outgoingEdges();
+}
+
+bool MovementStructure::Builder::validLaneSharing(
+    const std::vector<MovementId>& ids, LaneRange laneRange) {
+    for (const auto& id : ids) {
+        const Movement& movement = movements_.at(id);
+        if (movement.laneRange().sharedLaneCount(laneRange) > 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool MovementStructure::Builder::validLaneUtilization(
+    const std::vector<MovementId>& movements, size_t laneCount) {
+    if (movements.empty() || laneCount == 0) return false;
+
+    size_t currentMaxReached = 0;
+    bool firstMovement = true;
+
+    int i = 0;
+    for (const auto& movementId : movements) {
+        const Movement& m = movements_.at(movementId);
+        size_t first = m.laneRange().first();
+
+        if (firstMovement) {
+            if (first != 0) {
+                qWarning() << "First movement does not start at lane 0.";
+                return false;
+            }
+            firstMovement = false;
+        } else if (first != currentMaxReached &&
+                   first != currentMaxReached + 1) {
+            qWarning() << "WARNING: Movements are not contiguous. Invalid at "
+                          "movement index"
+                       << i << "from the left, where lane range starts from"
+                       << first << "but lane" << currentMaxReached
+                       << "was already reached during checks of previous "
+                          "movements.";
+            return false;
+        }
+        currentMaxReached = m.laneRange().last();
+        i++;
+    }
+
+    // Final check: Did the last movement actually reach the edge of the road?
+    return currentMaxReached == laneCount - 1;
 }
 
 }  // namespace topology
