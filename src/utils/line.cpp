@@ -46,4 +46,6 @@ bool Line::intersection(const Line& other, Position& intersection) const {
     return true;
 }
 
+double Line::length() const { return (p2_ - p1_).length(); }
+
 }  // namespace utils

@@ -6,11 +6,12 @@
 #include <QGraphicsView>
 #include <QPainterPath>
 
-#include "core/collisions/collision_map.h"
+#include "collision_map.h"
 #include "core/geometry/calculators/edge_factory.h"
 #include "core/geometry/calculators/movement_factory.h"
 #include "core/geometry/crossing.h"
 #include "core/geometry/movement_map.h"
+#include "crossing_collision_map.h"
 #include "debug_sink.h"
 #include "geometry/calculators/crossing_factory.h"
 #include "geometry/calculators/edge_factory.h"
@@ -91,10 +92,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 }
             }
 
+            // get all crossing geometry
+            std::unordered_map<CrossingId, geometry::Crossing> cGeo;
             for (const auto& [id, crossing] : node.crossings()) {
-                geometry::Crossing geo =
-                    geometry::CrossingFactory::build(*network_, id);
+                cGeo.insert(
+                    {id, geometry::CrossingFactory::build(*network_, id)});
+            }
 
+            for (const auto& [id, geo] : cGeo) {
                 QPointF p1(geo.rims().first.p1().x, geo.rims().first.p1().y);
                 QPointF p2(geo.rims().first.p2().x, geo.rims().first.p2().y);
                 QPointF p3(geo.rims().second.p1().x, geo.rims().second.p1().y);
@@ -105,6 +110,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
                 scene_->addLine(QLineF(p1, p2), QPen(Qt::darkRed, 0.1));
                 scene_->addLine(QLineF(p3, p4), QPen(Qt::darkRed, 0.1));
+            }
+
+            auto crossingCollisionMap =
+                CrossingCollisionMap::build(movementMap, cGeo);
+            // draw collision points
+            for (const auto& [crossingId, crossingCollisions] :
+                 crossingCollisionMap.map()) {
+                for (const auto& cp : crossingCollisions.points()) {
+                    scene_->addEllipse(cp.first.position().x - 0.1,
+                                       cp.first.position().y - 0.1, 0.2, 0.2,
+                                       QPen(Qt::black, 0.1));
+                    scene_->addEllipse(cp.second.position().x - 0.1,
+                                       cp.second.position().y - 0.1, 0.2, 0.2,
+                                       QPen(Qt::black, 0.1));
+                }
             }
         }
     }

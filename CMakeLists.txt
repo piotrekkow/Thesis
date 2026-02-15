@@ -77,8 +77,11 @@ add_executable(Thesis
 
     src/core/collisions/collision_point.h
     src/core/collisions/movement_collisions.h
+    src/core/collisions/crossing_collisions.h
     src/core/collisions/collision_map.h
     src/core/collisions/collision_map.cpp
+    src/core/collisions/crossing_collision_map.h
+    src/core/collisions/crossing_collision_map.cpp
 )
 
 target_link_libraries(Thesis PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)

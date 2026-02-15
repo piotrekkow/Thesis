@@ -3,7 +3,9 @@
 #include <cmath>
 
 #include "line.h"
+#include "polyline.h"
 #include "vector2.h"
+
 
 namespace utils {
 namespace {
@@ -117,6 +119,60 @@ std::optional<PolylineIntersection> firstIntersection(const Polyline& A,
     }
 
     return std::nullopt;
+}
+
+std::optional<std::pair<PolylineIntersection, PolylineIntersection>>
+firstAndLastIntersection(const Polyline& A, const Line& B) {
+    const auto& pa = A.positions();
+    if (pa.size() < 2) return std::nullopt;
+
+    Position b1 = B.p1();
+    Position b2 = B.p2();
+
+    bool foundAny = false;
+
+    PolylineIntersection firstHit{};
+    PolylineIntersection lastHit{};
+
+    double accumulatedA = 0.0;
+
+    for (size_t i = 0; i + 1 < pa.size(); ++i) {
+        Position a1 = pa[i];
+        Position a2 = pa[i + 1];
+
+        Position intersection;
+
+        if (segmentIntersectionInclusive(a1, a2, b1, b2, intersection)) {
+            double distA = accumulatedA + segmentLength(a1, intersection);
+            double distB = segmentLength(b1, intersection);
+
+            PolylineIntersection current;
+            current.point = intersection;
+            current.distanceA = distA;
+            current.distanceB = distB;
+
+            if (!foundAny) {
+                firstHit = current;
+                lastHit = current;
+                foundAny = true;
+            } else {
+                // update last hit along A
+                if (distA > lastHit.distanceA) {
+                    lastHit = current;
+                }
+
+                // defensive: if numerical noise produced earlier point
+                if (distA < firstHit.distanceA) {
+                    firstHit = current;
+                }
+            }
+        }
+
+        accumulatedA += segmentLength(a1, a2);
+    }
+
+    if (!foundAny) return std::nullopt;
+    return std::make_pair(firstHit, lastHit);
 }
 
 }  // namespace utils

@@ -15,6 +15,8 @@ class Line {
     Position p1() const { return p1_; }
     Position p2() const { return p2_; }
 
+    double length() const;
+
     // @return true if lines intersect, false otherwise
     // @param intersection output parameter for intersection point
     bool intersection(const Line& other, Position& intersection) const;

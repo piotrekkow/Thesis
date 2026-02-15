@@ -65,7 +65,8 @@ Network::Network() {
 
     n1.setMovementStructure(builder.build());
 
-    n1.createCrossing(utils::Position(18, 15), utils::Position(24.5, 6), 5.0);
+    // p1 18,15 p2 24.5,6
+    n1.createCrossing(utils::Position(10, 25), utils::Position(24.5, 6), 5.0);
 }
 
 std::pair<IntersectionId, NodeId> Network::createIntersection() {
