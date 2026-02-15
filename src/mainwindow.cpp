@@ -115,8 +115,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             auto crossingCollisionMap =
                 CrossingCollisionMap::build(movementMap, cGeo);
             // draw collision points
-            for (const auto& [crossingId, crossingCollisions] :
-                 crossingCollisionMap.map()) {
+            for (const auto& [_, crossingCollisions] :
+                 crossingCollisionMap.crossingClearingMap()) {
                 for (const auto& cp : crossingCollisions.points()) {
                     scene_->addEllipse(cp.first.position().x - 0.1,
                                        cp.first.position().y - 0.1, 0.2, 0.2,

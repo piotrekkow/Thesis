@@ -2,6 +2,7 @@
 
 #include "crossing_collisions.h"
 #include "id.h"
+#include "pair_hash.h"
 
 namespace topology {
 class MovementStructure;
@@ -19,11 +20,24 @@ class CrossingCollisionMap {
         const std::unordered_map<CrossingId, geometry::Crossing>&
             geoCrossingMap);
 
-    const std::unordered_map<CrossingId, CrossingCollisions>& map() const {
-        return crossingCollisions_;
+    const std::unordered_map<std::pair<CrossingId, MovementId>,
+                             CrossingCollisions, utils::PairHash>&
+    crossingClearingMap() const {
+        return crossingClearingMap_;
     }
-    // const CrossingCollisions* tryFind(CrossingId crossingId) const;
+
+    const std::unordered_map<std::pair<MovementId, CrossingId>,
+                             CrossingCollisions, utils::PairHash>&
+    movementClearingMap() const {
+        return movementClearingMap_;
+    }
 
    private:
-    std::unordered_map<CrossingId, CrossingCollisions> crossingCollisions_;
+    std::unordered_map<std::pair<CrossingId, MovementId>, CrossingCollisions,
+                       utils::PairHash>
+        crossingClearingMap_;
+
+    std::unordered_map<std::pair<MovementId, CrossingId>, CrossingCollisions,
+                       utils::PairHash>
+        movementClearingMap_;
 };

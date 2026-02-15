@@ -47,7 +47,7 @@ CollisionMap CollisionMap::build(
                             // Add collision record for clearing movement
                             // clearing = distance along A (distanceA)
                             // entering = distance along B (distanceB)
-                            cmap.movementCollisions_[clearingId]
+                            cmap.movementCollisions_[{clearingId, enteringId}]
                                 .addCollisionPoint(CollisionPoint(
                                     pi.distanceA, pi.distanceB, pi.point));
 
@@ -55,7 +55,8 @@ CollisionMap CollisionMap::build(
                             // movement clearing = distance along B (distanceB)
                             // entering = distance along A (distanceA)
                             if (addSymmetricForB) {
-                                cmap.movementCollisions_[enteringId]
+                                cmap.movementCollisions_[{enteringId,
+                                                          clearingId}]
                                     .addCollisionPoint(CollisionPoint(
                                         pi.distanceB, pi.distanceA, pi.point));
                             }
@@ -67,12 +68,4 @@ CollisionMap CollisionMap::build(
     }
 
     return cmap;
-}
-
-const MovementCollisions* CollisionMap::tryFind(MovementId movementId) const {
-    auto it = movementCollisions_.find(movementId);
-    if (it == movementCollisions_.end()) {
-        return nullptr;
-    }
-    return &it->second;
 }

@@ -4,6 +4,7 @@
 
 #include "id.h"
 #include "movement_collisions.h"
+#include "pair_hash.h"
 
 namespace topology {
 class MovementStructure;
@@ -18,11 +19,14 @@ class CollisionMap {
     static CollisionMap build(const geometry::MovementMap& geometryMap,
                               const topology::MovementStructure& mStructure);
 
-    const std::unordered_map<MovementId, MovementCollisions>& map() const {
+    const std::unordered_map<std::pair<MovementId, MovementId>,
+                             MovementCollisions, utils::PairHash>&
+    map() const {
         return movementCollisions_;
     }
-    const MovementCollisions* tryFind(MovementId movementId) const;
 
    private:
-    std::unordered_map<MovementId, MovementCollisions> movementCollisions_;
+    std::unordered_map<std::pair<MovementId, MovementId>, MovementCollisions,
+                       utils::PairHash>
+        movementCollisions_;
 };

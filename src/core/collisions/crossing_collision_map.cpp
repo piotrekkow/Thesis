@@ -1,5 +1,7 @@
 #include "crossing_collision_map.h"
 
+#include <utility>
+
 #include "collision_point.h"
 #include "geometry/crossing.h"
 #include "geometry/movement_map.h"
@@ -7,8 +9,12 @@
 #include "utils/polyline_utils.h"
 
 namespace {
-std::optional<std::pair<CollisionPoint, CollisionPoint>>
-findCrossingCollisionPair(
+struct IntersctionResult {
+    std::pair<CollisionPoint, CollisionPoint> movement;
+    std::pair<CollisionPoint, CollisionPoint> crossing;
+};
+
+std::optional<IntersctionResult> findCrossingCollisionPair(
     const utils::Polyline& movementPoly,
     const std::pair<utils::Line, utils::Line>& crossingRimPair) {
     auto isWRim1 = utils::firstAndLastIntersection(
@@ -39,25 +45,14 @@ findCrossingCollisionPair(
                 : isWRim2->second.point;
         // assume clearing distance for crossing - crossing length,
         // entering distance for crossing - 0.0
-        return std::make_pair(
-            CollisionPoint(movEntDistance, crossingRimPair.first.length(),
-                           movEntPos),
-            CollisionPoint(movExitDistance, 0.0, movExitPos));
-    } else {
-        // u-turn - are both collisions on the rim 1
-        if (isWRim1->first.distanceA < isWRim2->first.distanceA) {
-            return std::make_pair(CollisionPoint(isWRim1->first.distanceA,
-                                                 crossingRimPair.first.length(),
-                                                 isWRim1->first.point),
-                                  CollisionPoint(isWRim1->second.distanceA, 0.0,
-                                                 isWRim1->second.point));
-        } else {
-            return std::make_pair(CollisionPoint(isWRim2->first.distanceA,
-                                                 crossingRimPair.first.length(),
-                                                 isWRim2->first.point),
-                                  CollisionPoint(isWRim2->second.distanceA, 0.0,
-                                                 isWRim2->second.point));
-        }
+        return IntersctionResult{
+            std::make_pair(
+                CollisionPoint(movEntDistance, crossingRimPair.first.length(),
+                               movEntPos),
+                CollisionPoint(movExitDistance, 0.0, movExitPos)),
+            std::make_pair(CollisionPoint(crossingRimPair.first.length(),
+                                          movEntDistance, movEntPos),
+                           CollisionPoint(0.0, movExitDistance, movExitPos))};
     }
     return std::nullopt;
 }
@@ -78,8 +73,10 @@ CrossingCollisionMap CrossingCollisionMap::build(
                 auto optCollisionPair =
                     findCrossingCollisionPair(poly, rimPair);
                 if (optCollisionPair.has_value()) {
-                    ccmap.crossingCollisions_[cId].addCollisionPointPair(
-                        optCollisionPair.value());
+                    ccmap.crossingClearingMap_[{cId, mId}]
+                        .addCollisionPointPair(optCollisionPair->crossing);
+                    ccmap.movementClearingMap_[{mId, cId}]
+                        .addCollisionPointPair(optCollisionPair->movement);
                 }
             }
         }
