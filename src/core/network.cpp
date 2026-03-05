@@ -48,6 +48,8 @@ Network::Network() {
         .addMovement(e12.second, e12.first, {0},
                      topology::MovementGeometrySpec::cubicBezier(
                          offset1, offset1, coffset, coffset))
+
+        // 1K
         .addMovement(e13.second, e13.first, {0},
                      topology::MovementGeometrySpec::cubicBezier(
                          offset1, offset1, coffset, coffset))
@@ -57,14 +59,17 @@ Network::Network() {
         .addMovement(e13.second, e12.first, {2},
                      topology::MovementGeometrySpec::cubicBezier(
                          offset1, offset1, coffset, coffset))
+
+        // 2K
         .addMovement(e14.second, e14.first, {0},
                      topology::MovementGeometrySpec::cubicBezier())
         .addMovement(
-            e14.second, e12.first, {1},
-            topology::MovementGeometrySpec::quadraticBezier(offset1, offset1))
-        .addMovement(
-            e14.second, e13.first, {2},
+            e14.second, e12.first, {1, 2},
             topology::MovementGeometrySpec::quadraticBezier(offset1, offset1));
+    // .addMovement(
+    //     e14.second, e13.first, {2},
+    //     topology::MovementGeometrySpec::quadraticBezier(offset1,
+    //     offset1));
 
     n1.setMovementStructure(builder1.build());
 
@@ -89,8 +94,8 @@ Network::Network() {
     i1c.createSignalGroup<MovementId>(
         SignalGroup::Type::GENERAL_K,
         {n1.movementStructure()->movementsByEdge(e14.second).at(0),
-         n1.movementStructure()->movementsByEdge(e14.second).at(1),
-         n1.movementStructure()->movementsByEdge(e14.second).at(2)});
+         n1.movementStructure()->movementsByEdge(e14.second).at(1)/*,
+         n1.movementStructure()->movementsByEdge(e14.second).at(2)*/});
 
     i1c.createSignalGroup<CrossingId>(SignalGroup::Type::PEDESTRIAN_P, {n1c1});
 

@@ -76,6 +76,30 @@ bool segmentIntersectionInclusive(Position a1, Position a2, Position b1,
 
 double segmentLength(Position a, Position b) { return length(b - a); }
 
+// Like segmentIntersectionInclusive but returns false for collinear segments.
+bool segmentIntersectionProper(Position a1, Position a2, Position b1,
+                               Position b2, Position& out) {
+    Vector2 r = a2 - a1;
+    Vector2 s = b2 - b1;
+
+    double rxs = r.dx * s.dy - r.dy * s.dx;
+    Vector2 qp = b1 - a1;
+
+    const double eps = 1e-6;
+
+    if (std::abs(rxs) < eps) return false;  // parallel or collinear — skip
+
+    double t = (qp.dx * s.dy - qp.dy * s.dx) / rxs;
+    double u = (qp.dx * r.dy - qp.dy * r.dx) / rxs;
+
+    if (t >= -eps && t <= 1.0 + eps && u >= -eps && u <= 1.0 + eps) {
+        out = a1 + r * t;
+        return true;
+    }
+
+    return false;
+}
+
 double curvature(const Position& p0, const Position& p1, const Position& p2) {
     double dx1 = p1.x - p0.x;
     double dy1 = p1.y - p0.y;
@@ -93,6 +117,46 @@ double curvature(const Position& p0, const Position& p1, const Position& p2) {
     return std::abs(cross) / (d1 * d2 * d3);
 }
 }  // namespace
+
+std::optional<PolylineIntersection> lastIntersection(const Polyline& A,
+                                                     const Polyline& B) {
+    const auto& pa = A.positions();
+    const auto& pb = B.positions();
+
+    if (pa.size() < 2 || pb.size() < 2) return std::nullopt;
+
+    std::optional<PolylineIntersection> lastHit;
+    double accumulatedA = 0.0;
+
+    for (size_t i = 0; i + 1 < pa.size(); ++i) {
+        Position a1 = pa[i];
+        Position a2 = pa[i + 1];
+
+        double accumulatedB = 0.0;
+
+        for (size_t j = 0; j + 1 < pb.size(); ++j) {
+            Position b1 = pb[j];
+            Position b2 = pb[j + 1];
+
+            Position intersection;
+
+            if (segmentIntersectionProper(a1, a2, b1, b2, intersection)) {
+                double distA = accumulatedA + segmentLength(a1, intersection);
+                double distB = accumulatedB + segmentLength(b1, intersection);
+
+                if (!lastHit || distA > lastHit->distanceA) {
+                    lastHit = PolylineIntersection{intersection, distA, distB};
+                }
+            }
+
+            accumulatedB += segmentLength(b1, b2);
+        }
+
+        accumulatedA += segmentLength(a1, a2);
+    }
+
+    return lastHit;
+}
 
 std::optional<PolylineIntersection> firstIntersection(const Polyline& A,
                                                       const Polyline& B) {

@@ -11,27 +11,19 @@ class SignalConstraints;
 class Network;
 
 namespace intergreen {
-
 class Matrix {
    public:
     friend class MatrixFactory;
 
-    // const IntergreenEntry& entry(SignalGroupId clearingId,
-    //                              SignalGroupId enteringId) const;
+    // @return nullptr if no conflict (therefore entry) between signal groups
+    const Entry* entry(SignalGroupId clearingId,
+                       SignalGroupId enteringId) const;
 
-    // IntergreenEntry& entry(SignalGroupId clearingId, SignalGroupId
-    // enteringId);
-
-    // void print() const;
-    const std::unordered_map<
-        SignalGroupId, std::unordered_map<SignalGroupId, std::optional<Entry>>>&
-    matrix() const {
-        return matrix_;
-    }
+    const std::unordered_map<SignalGroupId, Entry>* entriesFor(
+        SignalGroupId clearingId) const;
 
    private:
-    std::unordered_map<SignalGroupId,
-                       std::unordered_map<SignalGroupId, std::optional<Entry>>>
+    std::unordered_map<SignalGroupId, std::unordered_map<SignalGroupId, Entry>>
         matrix_;
 };
 }  // namespace intergreen

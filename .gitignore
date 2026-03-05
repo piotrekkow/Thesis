@@ -6,3 +6,4 @@ CMakeLists.txt.user
 /.cache/
 *.ps1
 *combined.txt
+*.pdf

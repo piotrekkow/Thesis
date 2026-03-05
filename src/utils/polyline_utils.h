@@ -17,6 +17,8 @@ struct PolylineIntersection {
 
 std::optional<PolylineIntersection> firstIntersection(const Polyline& A,
                                                       const Polyline& B);
+std::optional<PolylineIntersection> lastIntersection(const Polyline& A,
+                                                     const Polyline& B);
 
 std::optional<std::pair<PolylineIntersection, PolylineIntersection>>
 firstAndLastIntersection(const Polyline& A, const Line& B);

@@ -17,7 +17,7 @@ void conflictsMovMov(Map& cm, const geometry::Movement& cGeo,
                      MovementId eMId) {
     for (const auto& cPath : cGeo.paths()) {
         for (const auto& ePath : eGeo.paths()) {
-            auto polylineIntersection = utils::firstIntersection(cPath, ePath);
+            auto polylineIntersection = utils::lastIntersection(cPath, ePath);
             if (!polylineIntersection.has_value()) continue;
             auto pi = polylineIntersection.value();
 

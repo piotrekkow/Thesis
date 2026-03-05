@@ -42,6 +42,11 @@ class Entry {
         isEntryFromRest_ = isEntryFromRest;
     }
 
+    bool canProceedSimultaneously() const {
+        return adjustment_.simultaneousPerm.value_or(
+            groupData_.canProceedSimultaneously);
+    }
+
    private:
     ConflictData rollingData_;
     ConflictData restData_;

@@ -137,15 +137,6 @@ Matrix MatrixFactory::compute(const Network& network,
                               const SignalConstraints& sc) {
     Matrix result;
 
-    // for all possible signal group interactions set entry to nullopt meaning
-    // no collision
-    for (const auto& [c, _] : controller.signalGroups()) {
-        for (const auto& [e, __] : controller.signalGroups()) {
-            if (c == e) continue;
-            result.matrix_[c][e] = std::nullopt;
-        }
-    }
-
     for (const auto& [cId, cSg] : controller.signalGroups()) {
         for (const auto& [eId, eSg] : controller.signalGroups()) {
             if (cId == eId) continue;
@@ -153,14 +144,11 @@ Matrix MatrixFactory::compute(const Network& network,
                 {cSg, cId, eSg, eId, cm, network, ic, sc});
 
             if (ig) {
-                result.matrix_[cId][eId] =
-                    Entry(ig->rollingData, ig->restData, ig->groupData);
-            } else {
-                result.matrix_[cId][eId] = std::nullopt;
+                result.matrix_[cId].emplace(
+                    eId, Entry(ig->rollingData, ig->restData, ig->groupData));
             }
         }
     }
-
     return result;
 }
 
@@ -259,9 +247,9 @@ bool MatrixFactory::isSimultaneousProceedPermitted(SearchContext ctx,
             if (mId && isThroughMovement(ctx.network, *mId)) return false;
         }
 
-        // c2) dowolny strumień pieszy i dowolny strumień kolizyjny z wyjątkiem
-        // strumienia pojazdów sterowanych sygnałem dopuszczającym skręcanie w
-        // kierunku wskazanym strzałką,
+        // c2) dowolny strumień pieszy i dowolny strumień kolizyjny z
+        // wyjątkiem strumienia pojazdów sterowanych sygnałem dopuszczającym
+        // skręcanie w kierunku wskazanym strzałką,
         if (ctx.cSg.type() != SignalGroup::Type::CONDITIONAL_ARROW_S ||
             ctx.eSg.type() != SignalGroup::Type::CONDITIONAL_ARROW_S)
             return false;
@@ -294,9 +282,9 @@ bool MatrixFactory::isSimultaneousProceedPermitted(SearchContext ctx,
             isThroughMovement(ctx.network, *eMId))
             return true;
 
-        // z wyjątkiem pary strumień pojazdów z tego samego wlotu lub z wlotu
-        // przeciwległego skręcających w lewo z pasa ruchu wspólnego dla
-        // kierunku na wprost i w lewo (w prawo)
+        // z wyjątkiem pary strumień pojazdów z tego samego wlotu lub z
+        // wlotu przeciwległego skręcających w lewo z pasa ruchu wspólnego
+        // dla kierunku na wprost i w lewo (w prawo)
 
         if (eMId && cMId &&
             areFromSameOrOppositeApproaches(ctx.network, *cMId, *eMId) &&
