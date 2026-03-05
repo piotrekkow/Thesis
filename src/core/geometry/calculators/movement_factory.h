@@ -1,6 +1,8 @@
 #pragma once
+#include <unordered_map>
 
-#include "geometry/movement_map.h"
+#include "geometry/movement.h"
+#include "id.h"
 
 class Network;
 namespace topology {
@@ -11,8 +13,8 @@ namespace geometry {
 
 class MovementFactory {
    public:
-    static MovementMap build(const Network& network,
-                             const topology::MovementStructure& mStructure);
+    static std::unordered_map<MovementId, Movement> build(
+        const Network& network, const topology::MovementStructure& mStructure);
 };
 
 }  // namespace geometry

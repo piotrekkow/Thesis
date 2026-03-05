@@ -50,4 +50,8 @@ Vector2 operator/(Vector2 v, double s) { return {v.dx / s, v.dy / s}; }
 
 Vector2 operator-(Vector2 v) { return {-v.dx, -v.dy}; }
 
+double angleBetween(double heading1, double heading2) {
+    return Vector2::fromAngle(heading1).angleTo(Vector2::fromAngle(heading2));
+}
+
 }  // namespace utils

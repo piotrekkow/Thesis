@@ -13,7 +13,6 @@
 #include "polyline.h"
 #include "position.h"
 #include "topology/movement/lane_range.h"
-#include "topology/movement/movement.h"
 #include "topology/movement/movement_geometry_spec.h"
 #include "topology/movement/movement_structure.h"
 #include "topology/node.h"
@@ -160,39 +159,7 @@ std::vector<utils::Polyline> calculatePaths(
 }
 }  // namespace
 
-// std::unordered_map<EdgeId, Movement> MovementCalculator::compute(
-//     const Network& network, EdgeId fromId, NodeId nodeId) {
-//     if (!network.node(nodeId).movementStructure().has_value()) {
-//         std::ostringstream msg;
-//         msg << "Node " << nodeId
-//             << " has no movement structure for geometry calculation.";
-//         throw std::runtime_error(msg.str());
-//     }
-
-//     const auto& movementMap =
-//         network.node(nodeId).movementStructure().value().movements();
-
-//     auto it = movementMap.find(fromId);
-//     if (it == movementMap.end()) {
-//         return {};  // Return empty map if no movements for this edge
-//     }
-
-//     const std::vector<topology::Movement>& movements = it->second;
-
-//     std::unordered_map<EdgeId, Movement> result;
-//     for (const auto& m : movements) {
-//         auto paths = calculatePaths(
-//             geometry::EdgeFactory::build(network, fromId), m.laneRange(),
-//             geometry::EdgeFactory::build(network, m.toEdge()),
-//             m.geometrySpec());
-
-//         result.insert({m.toEdge(), Movement(std::move(paths))});
-//     }
-
-//     return result;
-// }
-
-MovementMap MovementFactory::build(
+std::unordered_map<MovementId, Movement> MovementFactory::build(
     const Network& network, const topology::MovementStructure& mStructure) {
     std::unordered_map<MovementId, Movement> movements;
     for (const auto& [mId, m] : mStructure.movements()) {
@@ -202,6 +169,6 @@ MovementMap MovementFactory::build(
             m.geometrySpec());
         movements.emplace(mId, Movement(std::move(paths)));
     }
-    return MovementMap(std::move(movements));
+    return movements;
 }
 }  // namespace geometry

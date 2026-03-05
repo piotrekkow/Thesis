@@ -20,4 +20,10 @@ std::optional<PolylineIntersection> firstIntersection(const Polyline& A,
 
 std::optional<std::pair<PolylineIntersection, PolylineIntersection>>
 firstAndLastIntersection(const Polyline& A, const Line& B);
+std::optional<PolylineIntersection> lastIntersection(const Polyline& A,
+                                                     const Line& B);
+std::optional<PolylineIntersection> firstIntersection(const Polyline& A,
+                                                      const Line& B);
+
+double maxCurvature(const Polyline& polyline);
 }  // namespace utils

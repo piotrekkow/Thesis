@@ -20,6 +20,7 @@ class Movement {
     EdgeId fromEdge() const { return fromEdge_; }
     const LaneRange& laneRange() const { return laneRange_; }
     EdgeId toEdge() const { return toEdge_; }
+    // remove heading and deduce from network?
     double heading() const { return heading_; }
     const MovementGeometrySpec& geometrySpec() const { return geometrySpec_; }
 

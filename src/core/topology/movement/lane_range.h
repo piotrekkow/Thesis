@@ -8,15 +8,16 @@ class LaneRange {
     LaneRange(int single);
     LaneRange(int f, int l);
 
-    size_t count() const { return last_ - first_ + 1; }
-    bool contains(int lane) const { return lane >= first_ && lane <= last_; }
+    size_t count() const;
+    bool contains(int lane) const;
     size_t sharedLaneCount(const LaneRange& other) const;
-    size_t first() const { return first_; }
-    size_t last() const { return last_; }
+
+    int first() const { return first_; }
+    int last() const { return last_; }
 
    private:
-    size_t first_;
-    size_t last_;
+    int first_;
+    int last_;
 
     bool overlaps(const LaneRange& other) const {
         return first_ <= other.last_ && last_ >= other.first_;

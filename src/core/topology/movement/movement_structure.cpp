@@ -18,18 +18,6 @@
 namespace topology {
 
 namespace {
-// movements can share at most 1 lane with neighbor
-bool validateLaneSharing(const std::vector<Movement>& movements) {
-    for (size_t i = 0; i < movements.size() - 1; ++i) {
-        size_t shared = movements[i].laneRange().sharedLaneCount(
-            movements[i + 1].laneRange());
-
-        if (shared > 1) {
-            return false;
-        }
-    }
-    return true;
-}
 
 double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
     Edge& fromEdge = network.edge(from);
@@ -50,22 +38,6 @@ double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
     }
 
     return fromDirection.angleTo(movementDirection);
-}
-
-void sortByHeading(std::vector<Movement>& movements) {
-    std::sort(movements.begin(), movements.end(),
-              [](const Movement& a, const Movement& b) {
-                  return a.heading() < b.heading();  // descending
-              });
-}
-
-auto findNewMovementPosition(std::vector<Movement>& movements,
-                             double newHeading) {
-    return std::lower_bound(movements.begin(), movements.end(), newHeading,
-                            [](const Movement& m, double heading) {
-                                return m.heading() <
-                                       heading;  // must match descending order
-                            });
 }
 
 bool validLaneRange(const LaneRange& lr, size_t exitLaneCount) {
@@ -189,7 +161,7 @@ bool MovementStructure::Builder::validLaneUtilization(
     int i = 0;
     for (const auto& movementId : movements) {
         const Movement& m = movements_.at(movementId);
-        size_t first = m.laneRange().first();
+        int first = m.laneRange().first();
 
         if (firstMovement) {
             if (first != 0) {

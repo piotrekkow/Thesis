@@ -1,6 +1,9 @@
 #include "network.h"
 
 // #include "topology/movement/movement_geometry_spec.h"
+#include "controller.h"
+#include "id.h"
+#include "signal_group.h"
 #include "topology/movement/movement_geometry_spec.h"
 #include "topology/movement/movement_structure.h"
 #include "topology/node.h"
@@ -29,13 +32,13 @@ Network::Network() {
     edge(e14.second).exit().createLanes(2);
 
     auto& n1 = node(i1.second);
-    auto builder = n1.createMovementBuilder(*this);
+    auto builder1 = n1.createMovementBuilder(*this);
 
     double offset1 = 12.0;
     double coffset = offset1 + 4.0;
 
     // east
-    builder
+    builder1
         .addMovement(e12.second, e13.first, {0, 1},
                      topology::MovementGeometrySpec::cubicBezier(
                          offset1, offset1, coffset, coffset))
@@ -63,15 +66,59 @@ Network::Network() {
             e14.second, e13.first, {2},
             topology::MovementGeometrySpec::quadraticBezier(offset1, offset1));
 
-    n1.setMovementStructure(builder.build());
+    n1.setMovementStructure(builder1.build());
 
     // p1 18,15 p2 24.5,6
-    n1.createCrossing(utils::Position(10, 25), utils::Position(24.5, 6), 5.0);
+    auto n1c1 = n1.createCrossing(utils::Position(10, 25),
+                                  utils::Position(24.5, 6), 5.0);
+
+    auto& i1c = intersection(i1.first).controller();
+
+    i1c.createSignalGroup<MovementId>(
+        SignalGroup::Type::GENERAL_K,
+        {n1.movementStructure()->movementsByEdge(e12.second).at(0),
+         n1.movementStructure()->movementsByEdge(e12.second).at(1),
+         n1.movementStructure()->movementsByEdge(e12.second).at(2)});
+
+    i1c.createSignalGroup<MovementId>(
+        SignalGroup::Type::GENERAL_K,
+        {n1.movementStructure()->movementsByEdge(e13.second).at(0),
+         n1.movementStructure()->movementsByEdge(e13.second).at(1),
+         n1.movementStructure()->movementsByEdge(e13.second).at(2)});
+
+    i1c.createSignalGroup<MovementId>(
+        SignalGroup::Type::GENERAL_K,
+        {n1.movementStructure()->movementsByEdge(e14.second).at(0),
+         n1.movementStructure()->movementsByEdge(e14.second).at(1),
+         n1.movementStructure()->movementsByEdge(e14.second).at(2)});
+
+    i1c.createSignalGroup<CrossingId>(SignalGroup::Type::PEDESTRIAN_P, {n1c1});
+
+    i1c.computeIntergreenMatrix(*this);
+
+    // second intersection
+
+    auto i5 = createIntersection();
+    auto i6 = createIntersection();
+    auto i7 = createIntersection();
+
+    auto e53 = createEdge(i5.second, {-200, 0}, i3.second, {-120, -100});
+    auto e36 = createEdge(i3.second, {-120, -120}, i6.second, {-200, -200});
+    auto e37 = createEdge(i3.second, {-100, -120}, i7.second, {0, -200});
+
+    edge(e53).entry().createLanes(1);
+    edge(e37).exit().createLanes(2);
+    edge(e36).exit().createLanes(2);
+
+    auto& n3 = node(i3.second);
+    auto builder3 = n3.createMovementBuilder(*this);
+    builder3.addMovement(e13.first, e36, {0}).addMovement(e53, e37, {0});
+    n3.setMovementStructure(builder3.build());
 }
 
 std::pair<IntersectionId, NodeId> Network::createIntersection() {
     auto newIId = intersectionIdGen_.next();
-    intersections_.emplace(newIId, topology::Intersection(newIId));
+    intersections_.emplace(newIId, Intersection(newIId));
     auto newNId = intersection(newIId).createNode();
     return {newIId, newNId};
 }
@@ -97,12 +144,11 @@ std::pair<EdgeId, EdgeId> Network::createTwoWayEdge(NodeId n1,
 }
 
 topology::Node& Network::node(NodeId id) {
-    topology::Intersection& intersection = intersections_.at(id.payload());
+    Intersection& intersection = intersections_.at(id.payload());
     return intersection.node(id);
 }
 
 const topology::Node& Network::node(NodeId id) const {
-    const topology::Intersection& intersection =
-        intersections_.at(id.payload());
+    const Intersection& intersection = intersections_.at(id.payload());
     return intersection.node(id);
 }

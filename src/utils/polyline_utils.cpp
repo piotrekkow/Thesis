@@ -6,7 +6,6 @@
 #include "polyline.h"
 #include "vector2.h"
 
-
 namespace utils {
 namespace {
 inline double dot(const Vector2& a, const Vector2& b) {
@@ -76,6 +75,23 @@ bool segmentIntersectionInclusive(Position a1, Position a2, Position b1,
 }
 
 double segmentLength(Position a, Position b) { return length(b - a); }
+
+double curvature(const Position& p0, const Position& p1, const Position& p2) {
+    double dx1 = p1.x - p0.x;
+    double dy1 = p1.y - p0.y;
+
+    double dx2 = p2.x - p1.x;
+    double dy2 = p2.y - p1.y;
+
+    double cross = dx1 * dy2 - dy1 * dx2;
+    double d1 = std::hypot(dx1, dy1);
+    double d2 = std::hypot(dx2, dy2);
+    double d3 = std::hypot(p2.x - p0.x, p2.y - p0.y);
+
+    if (d1 == 0 || d2 == 0 || d3 == 0) return 0.0;
+
+    return std::abs(cross) / (d1 * d2 * d3);
+}
 }  // namespace
 
 std::optional<PolylineIntersection> firstIntersection(const Polyline& A,
@@ -175,4 +191,81 @@ firstAndLastIntersection(const Polyline& A, const Line& B) {
     return std::make_pair(firstHit, lastHit);
 }
 
+std::optional<PolylineIntersection> firstIntersection(const Polyline& A,
+                                                      const Line& B) {
+    const auto& pa = A.positions();
+    if (pa.size() < 2) return std::nullopt;
+
+    const Position b1 = B.p1();
+    const Position b2 = B.p2();
+
+    double accumulatedA = 0.0;
+
+    for (size_t i = 0; i + 1 < pa.size(); ++i) {
+        const Position a1 = pa[i];
+        const Position a2 = pa[i + 1];
+
+        Position intersection;
+
+        if (segmentIntersectionInclusive(a1, a2, b1, b2, intersection)) {
+            const double distA = accumulatedA + segmentLength(a1, intersection);
+            const double distB = segmentLength(b1, intersection);
+
+            return PolylineIntersection{intersection, distA, distB};
+        }
+
+        accumulatedA += segmentLength(a1, a2);
+    }
+
+    return std::nullopt;
+}
+
+double maxCurvature(const Polyline& polyline) {
+    size_t size = polyline.positions().size();
+    if (size < 3) return 0.0;
+
+    double maxK = 0.0;
+    const auto& pts = polyline.positions();
+    for (size_t i = 1; i + 1 < size; ++i) {
+        maxK = std::max(maxK, curvature(pts[i - 1], pts[i], pts[i + 1]));
+    }
+    return maxK;
+}
+
+std::optional<PolylineIntersection> lastIntersection(const Polyline& A,
+                                                     const Line& B) {
+    const auto& pa = A.positions();
+    if (pa.size() < 2) return std::nullopt;
+
+    const Position b1 = B.p1();
+    const Position b2 = B.p2();
+
+    std::optional<PolylineIntersection> lastHit;
+    double accumulatedA = 0.0;
+
+    for (size_t i = 0; i + 1 < pa.size(); ++i) {
+        const Position a1 = pa[i];
+        const Position a2 = pa[i + 1];
+
+        Position intersection;
+
+        if (segmentIntersectionInclusive(a1, a2, b1, b2, intersection)) {
+            const double distA = accumulatedA + segmentLength(a1, intersection);
+            const double distB = segmentLength(b1, intersection);
+
+            PolylineIntersection current;
+            current.point = intersection;
+            current.distanceA = distA;
+            current.distanceB = distB;
+
+            if (!lastHit || distA > lastHit->distanceA) {
+                lastHit = current;
+            }
+        }
+
+        accumulatedA += segmentLength(a1, a2);
+    }
+
+    return lastHit;
+}
 }  // namespace utils

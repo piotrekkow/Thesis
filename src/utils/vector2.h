@@ -31,4 +31,8 @@ Vector2 operator*(double s, Vector2 v);
 Vector2 operator/(Vector2 v, double s);
 Vector2 operator-(Vector2 v);
 
+// @return angle in range (-pi, pi) from vector produced from heading1 to vector
+// produced from heading2
+double angleBetween(double heading1, double heading2);
+
 }  // namespace utils

@@ -12,7 +12,7 @@ class LaneGroup {
               std::vector<double> laneWidths = {})
         : position_(position),
           heading_(heading),
-          speedLimit_(),
+          speedLimit_(13.88),
           laneWidths_(laneWidths) {}
     ~LaneGroup() = default;
 
@@ -29,6 +29,9 @@ class LaneGroup {
     const std::vector<double>& laneWidths() const { return laneWidths_; }
     void createLane(double width = 3.5);
     void createLanes(int count, double width = 3.5);
+
+    double speedLimit() const { return speedLimit_; }
+    void setSpeedLimit(double v) { speedLimit_ = v; }
 
    private:
     utils::Position

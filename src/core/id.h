@@ -101,12 +101,16 @@ char tagChar() {
         name.remove_prefix(1);
     }
 
-    return name.empty() ? '?' : std::tolower(name[0]);
+    char c = name[0];
+    if (c >= 'A' && c <= 'Z') {
+        c = c - 'A' + 'a';
+    }
+    return c;
 }
 
 // Base case: global ID
 template <typename Tag>
-void print_full_id(std::ostream& os, const Id<Tag, void>& id, char sep = '-') {
+void print_full_id(std::ostream& os, const Id<Tag, void>& id) {
     if (!id.valid()) {
         os << "<invalid>";
         return;
@@ -164,9 +168,11 @@ struct NodeTag {};
 struct IntersectionTag {};
 struct CrossingTag {};
 struct MovementTag {};
+struct SignalGroupTag {};
 
 using IntersectionId = Id<IntersectionTag, void>;
 using EdgeId = Id<EdgeTag, void>;
 using NodeId = Id<NodeTag, IntersectionId>;
 using CrossingId = Id<CrossingTag, NodeId>;
 using MovementId = Id<MovementTag, NodeId>;
+using SignalGroupId = Id<SignalGroupTag, IntersectionId>;
