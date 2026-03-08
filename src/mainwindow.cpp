@@ -41,6 +41,21 @@ void drawCricle(QGraphicsScene* scene, utils::Position pos, double diameter,
     scene->addEllipse(pos.x - diameter / 2, pos.y - diameter / 2, diameter,
                       diameter, pen);
 }
+
+std::vector<QColor> generateDistinctColors(int n) {
+    std::vector<QColor> colors;
+    colors.reserve(n);
+
+    for (int i = 0; i < n; ++i) {
+        int hue = (360 * i) / n;  // evenly spaced hues
+        int saturation = 200;     // strong color
+        int value = 255;          // bright (good for dark background)
+
+        colors.emplace_back(QColor::fromHsv(hue, saturation, value));
+    }
+
+    return colors;
+}
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -57,7 +72,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     for (const auto& [id, edge] : network_->edges()) {
         QPointF startPos(edge.exit().position().x, edge.exit().position().y);
         QPointF endPos(edge.entry().position().x, edge.entry().position().y);
-        scene_->addLine(QLineF(startPos, endPos), QPen(Qt::yellow, 0.2));
+        scene_->addLine(QLineF(startPos, endPos), QPen(Qt::gray, 0.2));
 
         auto geo = geometry::EdgeFactory::build(*network_, id);
         for (const auto& line : geo.entries()) {
@@ -86,6 +101,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             auto movementGeos = geometry::MovementFactory::build(
                 *network_, node.movementStructure().value());
 
+            const auto colors = generateDistinctColors(movementGeos.size());
             // draw movement paths
             for (const auto& [mId, movement] : movementGeos) {
                 for (const auto& path : movement.paths()) {
@@ -100,12 +116,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                             ppath.lineTo(QPointF(p.x, p.y));
                         }
                     }
-                    scene_->addPath(ppath, QPen(Qt::darkCyan, 0.1));
-                    // double maxK = utils::maxCurvature(path);
-                    // auto* textItem = scene_->addText(QString::number(maxK),
-                    //                                  QFont("Arial", 1));
-                    // textItem->setPos(path.positions().front().x,
-                    //                  path.positions().front().y);
+                    scene_->addPath(ppath, QPen(colors[mId.value()], 0.1));
                 }
             }
 
@@ -136,15 +147,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 for (const auto& [_, cpoints] : eConflicts) {
                     for (const auto& cp : cpoints) {
                         std::visit(
-                            overloaded{[&](MovementId) {
-                                           drawCricle(scene_, cp.position(),
-                                                      0.3,
-                                                      QPen(Qt::white, 0.1));
-                                       },
-                                       [&](CrossingId) {
-                                           drawCross(scene_, cp.position(), 0.3,
-                                                     QPen(Qt::white, 0.1));
-                                       }},
+                            overloaded{
+                                [&](MovementId mId) {
+                                    drawCricle(scene_, cp.position(), 0.5,
+                                               QPen(colors[mId.value()], 0.15));
+                                },
+                                [&](CrossingId) {
+                                    drawCross(scene_, cp.position(), 0.5,
+                                              QPen(Qt::white, 0.2));
+                                    drawCross(scene_, cp.position(), 0.45,
+                                              QPen(Qt::darkRed, 0.1));
+                                }},
                             cSId);
                     }
                 }

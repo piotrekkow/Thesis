@@ -39,8 +39,6 @@ add_executable(Thesis
     src/core/topology/lane_group.cpp
     src/core/topology/movement/movement.h
     src/core/topology/movement/movement_geometry_spec.h
-    src/core/topology/movement/lane_range.h
-    src/core/topology/movement/lane_range.cpp
     src/core/topology/movement/movement_structure.h
     src/core/topology/movement/movement_structure.cpp
     src/core/topology/crossing.h

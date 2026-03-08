@@ -5,7 +5,6 @@
 
 #include "id.h"
 #include "id_generator.h"
-#include "topology/movement/lane_range.h"
 #include "topology/movement/movement.h"
 #include "topology/movement/movement_geometry_spec.h"
 
@@ -21,10 +20,10 @@ class MovementStructure {
         explicit Builder(Network& network, NodeId nodeId);
 
         // Add a movement from an incoming edge to an outgoing edge using
-        // specific lanes Must be called in order: movements for each incoming
-        // edge must go from leftmost to rightmost outgoing edge
+        // specific entry lanes of the from-edge. Must be called in order:
+        // movements for each incoming edge must go from leftmost to rightmost.
         Builder& addMovement(
-            EdgeId from, EdgeId to, LaneRange laneRange,
+            EdgeId from, EdgeId to, std::vector<EntryLaneId> lanes,
             MovementGeometrySpec geometrySpec = MovementGeometrySpec::line());
 
         MovementStructure build();
@@ -40,9 +39,9 @@ class MovementStructure {
         const std::vector<EdgeId>& outgoingEdges() const;
 
         bool validLaneSharing(const std::vector<MovementId>& ids,
-                              LaneRange laneRange);
+                              const std::vector<EntryLaneId>& lanes);
         bool validLaneUtilization(const std::vector<MovementId>& movements,
-                                  size_t laneCount);
+                                  EdgeId edgeId);
     };
 
     const std::unordered_map<MovementId, Movement>& movements() const {

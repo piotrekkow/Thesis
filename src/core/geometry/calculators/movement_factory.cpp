@@ -12,7 +12,8 @@
 #include "network.h"
 #include "polyline.h"
 #include "position.h"
-#include "topology/movement/lane_range.h"
+#include "topology/edge.h"
+#include "topology/lane_group.h"
 #include "topology/movement/movement_geometry_spec.h"
 #include "topology/movement/movement_structure.h"
 #include "topology/node.h"
@@ -81,15 +82,16 @@ utils::Polyline buildPath(utils::Line entry, utils::Position entryOffset,
 }
 
 std::vector<utils::Polyline> calculatePaths(
-    Edge fromEdge, const topology::LaneRange& laneRange, Edge toEdge,
+    Edge fromEdge, std::vector<size_t> entryIndices, Edge toEdge,
+    std::vector<size_t> exitIndices,
     const topology::MovementGeometrySpec& geometrySpec) {
     std::vector<utils::Polyline> movementPaths;
 
-    auto leftmostEntry = fromEdge.entries()[laneRange.first()];
-    auto rightmostEntry = fromEdge.entries()[laneRange.last()];
+    auto leftmostEntry = fromEdge.entries()[entryIndices.front()];
+    auto rightmostEntry = fromEdge.entries()[entryIndices.back()];
 
-    auto leftmostExit = toEdge.exits()[0];
-    auto rightmostExit = toEdge.exits()[toEdge.exits().size() - 1];
+    auto leftmostExit = toEdge.exits()[exitIndices.front()];
+    auto rightmostExit = toEdge.exits()[exitIndices.back()];
 
     auto entryAnchor = offsetAnchor(leftmostEntry, rightmostEntry);
     auto exitAnchor = offsetAnchor(leftmostExit, rightmostExit);
@@ -130,29 +132,29 @@ std::vector<utils::Polyline> calculatePaths(
     utils::Line exitOffsetMitreLine(exitOffsetAnchor,
                                     exitOffsetAnchor + exitBisector);
 
-    utils::Position leftmostEntryMitre;
-    if (!leftmostEntry.intersection(entryOffsetMitreLine, leftmostEntryMitre))
-        throw std::runtime_error("Mitre intersection failed");
-    utils::Position leftmostExitMitre;
-    if (!leftmostExit.intersection(exitOffsetMitreLine, leftmostExitMitre))
-        throw std::runtime_error("Mitre intersection failed");
-
-    movementPaths.push_back(buildPath(leftmostEntry, leftmostEntryMitre,
-                                      leftmostExitMitre, leftmostExit,
-                                      geometrySpec));
-
-    if (toEdge.exits().size() > 1) {
-        utils::Position rightmostEntryMitre;
-        if (!rightmostEntry.intersection(entryOffsetMitreLine,
-                                         rightmostEntryMitre))
+    // Precompute per-entry-lane mitre intersections
+    std::vector<utils::Position> entryMitres(entryIndices.size());
+    for (size_t i = 0; i < entryIndices.size(); ++i) {
+        auto lane = fromEdge.entries()[entryIndices[i]];
+        if (!lane.intersection(entryOffsetMitreLine, entryMitres[i]))
             throw std::runtime_error("Mitre intersection failed");
-        utils::Position rightmostExitMitre;
-        if (!rightmostExit.intersection(exitOffsetMitreLine,
-                                        rightmostExitMitre))
+    }
+
+    // Precompute per-exit-lane mitre intersections
+    std::vector<utils::Position> exitMitres(exitIndices.size());
+    for (size_t j = 0; j < exitIndices.size(); ++j) {
+        auto lane = toEdge.exits()[exitIndices[j]];
+        if (!lane.intersection(exitOffsetMitreLine, exitMitres[j]))
             throw std::runtime_error("Mitre intersection failed");
-        movementPaths.push_back(buildPath(rightmostEntry, rightmostEntryMitre,
-                                          rightmostExitMitre, rightmostExit,
-                                          geometrySpec));
+    }
+
+    // M paths: exit lane j pairs with entry lane min(j, N-1)
+    for (size_t j = 0; j < exitIndices.size(); ++j) {
+        size_t i = std::min(j, entryIndices.size() - 1);
+        movementPaths.push_back(
+            buildPath(fromEdge.entries()[entryIndices[i]], entryMitres[i],
+                      exitMitres[j], toEdge.exits()[exitIndices[j]],
+                      geometrySpec));
     }
 
     return movementPaths;
@@ -163,9 +165,22 @@ std::unordered_map<MovementId, Movement> MovementFactory::build(
     const Network& network, const topology::MovementStructure& mStructure) {
     std::unordered_map<MovementId, Movement> movements;
     for (const auto& [mId, m] : mStructure.movements()) {
+        const topology::EntryLaneGroup& entryGroup =
+            network.edge(m.fromEdge()).entry();
+        const topology::ExitLaneGroup& exitGroup =
+            network.edge(m.toEdge()).exit();
+
+        std::vector<size_t> entryIndices;
+        for (const auto& laneId : m.entryLanes())
+            entryIndices.push_back(entryGroup.indexOf(laneId));
+
+        std::vector<size_t> exitIndices;
+        for (const auto& laneId : m.exitLanes())
+            exitIndices.push_back(exitGroup.indexOf(laneId));
+
         auto paths = calculatePaths(
-            geometry::EdgeFactory::build(network, m.fromEdge()), m.laneRange(),
-            geometry::EdgeFactory::build(network, m.toEdge()),
+            geometry::EdgeFactory::build(network, m.fromEdge()), entryIndices,
+            geometry::EdgeFactory::build(network, m.toEdge()), exitIndices,
             m.geometrySpec());
         movements.emplace(mId, Movement(std::move(paths)));
     }

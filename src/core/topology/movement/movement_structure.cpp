@@ -7,6 +7,7 @@
 #include <numbers>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 
 #include "network.h"
 #include "position.h"
@@ -35,16 +36,13 @@ double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
     return utils::Vector2::fromAngle(entry.heading()).angleTo(movementDirection);
 }
 
-bool validLaneRange(const LaneRange& lr, size_t exitLaneCount) {
-    return lr.count() <= exitLaneCount;
-}
 }  // namespace
 
 MovementStructure::Builder::Builder(Network& network, NodeId nodeId)
     : network_(network), nodeId_(nodeId) {}
 
 MovementStructure::Builder& MovementStructure::Builder::addMovement(
-    EdgeId from, EdgeId to, LaneRange laneRange,
+    EdgeId from, EdgeId to, std::vector<EntryLaneId> lanes,
     MovementGeometrySpec geometrySpec) {
     if (std::find(incomingEdges().begin(), incomingEdges().end(), from) ==
         incomingEdges().end()) {
@@ -62,20 +60,19 @@ MovementStructure::Builder& MovementStructure::Builder::addMovement(
     }
 
     size_t exitLaneCount = network_.edge(to).exit().laneCount();
-    if (!validLaneRange(laneRange, exitLaneCount)) {
+    if (lanes.size() > exitLaneCount) {
         std::ostringstream msg;
         msg << "Proposed movement at " << nodeId_ << " from " << from << " to "
-            << to << " allocates " << laneRange.count()
+            << to << " allocates " << lanes.size()
             << " lanes but there are only " << exitLaneCount
             << " lanes at the target exit.";
-
         throw std::invalid_argument(msg.str());
     }
 
     auto& orderedIds = movementsByEdge_[from];
 
     if (!orderedIds.empty()) {
-        if (!validLaneSharing(orderedIds, laneRange)) {
+        if (!validLaneSharing(orderedIds, lanes)) {
             std::ostringstream msg;
             msg << "Proposed movements at " << nodeId_ << " from " << from
                 << " share more than 1 lane with each other.";
@@ -94,7 +91,11 @@ MovementStructure::Builder& MovementStructure::Builder::addMovement(
                          });
 
     MovementId newId = movementIdGen_.next(nodeId_);
-    movements_.emplace(newId, Movement(from, laneRange, to, geometrySpec));
+    const auto& exitGroup = network_.edge(to).exit();
+    std::vector<ExitLaneId> exitLanes(exitGroup.laneIds().begin(),
+                                      exitGroup.laneIds().end());
+    movements_.emplace(
+        newId, Movement(from, std::move(lanes), to, std::move(exitLanes), geometrySpec));
     orderedIds.emplace(pos, newId);
 
     return *this;
@@ -102,8 +103,7 @@ MovementStructure::Builder& MovementStructure::Builder::addMovement(
 
 MovementStructure MovementStructure::Builder::build() {
     for (const auto& [edgeId, movements] : movementsByEdge_) {
-        if (!validLaneUtilization(movements,
-                                  network_.edge(edgeId).entry().laneCount())) {
+        if (!validLaneUtilization(movements, edgeId)) {
             qWarning() << "WARNING: Movement from edge" << edgeId
                        << "has invalid lane utilization.";
             std::ostringstream msg;
@@ -131,50 +131,61 @@ const std::vector<EdgeId>& MovementStructure::Builder::outgoingEdges() const {
 }
 
 bool MovementStructure::Builder::validLaneSharing(
-    const std::vector<MovementId>& ids, LaneRange laneRange) {
+    const std::vector<MovementId>& ids, const std::vector<EntryLaneId>& lanes) {
+    std::unordered_set<EntryLaneId> laneSet(lanes.begin(), lanes.end());
     for (const auto& id : ids) {
         const Movement& movement = movements_.at(id);
-        if (movement.laneRange().sharedLaneCount(laneRange) > 1) {
-            return false;
+        size_t shared = 0;
+        for (const auto& laneId : movement.entryLanes()) {
+            if (laneSet.count(laneId)) shared++;
         }
+        if (shared > 1) return false;
     }
     return true;
 }
 
 bool MovementStructure::Builder::validLaneUtilization(
-    const std::vector<MovementId>& movements, size_t laneCount) {
-    if (movements.empty() || laneCount == 0) return false;
+    const std::vector<MovementId>& movementIds, EdgeId edgeId) {
+    if (movementIds.empty()) return false;
 
-    size_t currentMaxReached = 0;
+    const EntryLaneGroup& entryGroup = network_.edge(edgeId).entry();
+    const std::vector<EntryLaneId>& allLaneIds = entryGroup.laneIds();
+    if (allLaneIds.empty()) return false;
+
+    // Replicate the index-based contiguity check using indexOf lookups.
+    // Movements are ordered left-to-right; each movement's lane set must be
+    // contiguous and adjacent (allowing 1 shared lane) to the previous one.
+    size_t currentMaxIdx = 0;
     bool firstMovement = true;
-
     int i = 0;
-    for (const auto& movementId : movements) {
+
+    for (const auto& movementId : movementIds) {
         const Movement& m = movements_.at(movementId);
-        int first = m.laneRange().first();
+        const auto& mLanes = m.entryLanes();
+        if (mLanes.empty()) return false;
+
+        size_t firstIdx = entryGroup.indexOf(mLanes.front());
 
         if (firstMovement) {
-            if (first != 0) {
+            if (firstIdx != 0) {
                 qWarning() << "First movement does not start at lane 0.";
                 return false;
             }
             firstMovement = false;
-        } else if (first != currentMaxReached &&
-                   first != currentMaxReached + 1) {
+        } else if (firstIdx != currentMaxIdx && firstIdx != currentMaxIdx + 1) {
             qWarning() << "WARNING: Movements are not contiguous. Invalid at "
                           "movement index"
                        << i << "from the left, where lane range starts from"
-                       << first << "but lane" << currentMaxReached
+                       << firstIdx << "but lane" << currentMaxIdx
                        << "was already reached during checks of previous "
                           "movements.";
             return false;
         }
-        currentMaxReached = m.laneRange().last();
+        currentMaxIdx = entryGroup.indexOf(mLanes.back());
         i++;
     }
 
-    // Final check: Did the last movement actually reach the edge of the road?
-    return currentMaxReached == laneCount - 1;
+    return currentMaxIdx == allLaneIds.size() - 1;
 }
 
 }  // namespace topology

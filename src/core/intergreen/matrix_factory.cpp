@@ -2,6 +2,7 @@
 
 #include <numbers>
 #include <optional>
+#include <unordered_set>
 
 #include "controller.h"
 #include "intergreen/entry.h"
@@ -80,7 +81,7 @@ bool isLeftmostOrRightmostAndLaneShared(const Network& network,
 
     const auto& mStr = network.node(mId.payload()).movementStructure().value();
     const auto& mov = mStr.movement(mId);
-    if (mov.laneRange().count() == 1) return false;
+    if (mov.entryLanes().size() == 1) return false;
     const auto& movementsFromEdge = mStr.movementsByEdge(mov.fromEdge());
 
     for (const auto& otherId : movementsFromEdge) {
@@ -88,7 +89,14 @@ bool isLeftmostOrRightmostAndLaneShared(const Network& network,
         if (!isThroughMovement(network, otherId)) continue;
 
         const auto& other = mStr.movement(otherId);
-        if (mov.laneRange().sharedLaneCount(other.laneRange()) > 0) return true;
+        // Count shared EntryLaneIds between the two movements
+        std::unordered_set<EntryLaneId> movLanes(mov.entryLanes().begin(),
+                                                  mov.entryLanes().end());
+        size_t shared = 0;
+        for (const auto& laneId : other.entryLanes()) {
+            if (movLanes.count(laneId)) shared++;
+        }
+        if (shared > 0) return true;
     }
     return false;
 }
