@@ -9,26 +9,21 @@ namespace topology {
 class Movement {
    public:
     Movement(EdgeId fromEdge, LaneRange laneRange, EdgeId toEdge,
-             double heading,
              MovementGeometrySpec geometrySpec = MovementGeometrySpec::line())
         : fromEdge_(fromEdge),
           laneRange_(laneRange),
           toEdge_(toEdge),
-          heading_(heading),
           geometrySpec_(geometrySpec) {}
 
     EdgeId fromEdge() const { return fromEdge_; }
     const LaneRange& laneRange() const { return laneRange_; }
     EdgeId toEdge() const { return toEdge_; }
-    // remove heading and deduce from network?
-    double heading() const { return heading_; }
     const MovementGeometrySpec& geometrySpec() const { return geometrySpec_; }
 
    private:
     EdgeId fromEdge_;
     LaneRange laneRange_;
     EdgeId toEdge_;
-    double heading_;
     MovementGeometrySpec geometrySpec_;
 };
 

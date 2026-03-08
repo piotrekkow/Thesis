@@ -20,24 +20,19 @@ namespace topology {
 namespace {
 
 double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
-    Edge& fromEdge = network.edge(from);
-    Edge& toEdge = network.edge(to);
-    utils::Position fromPos = fromEdge.entry().position();
-    utils::Position toPos = toEdge.exit().position();
+    const auto& entry = network.edge(from).entry();
+    const auto& exit = network.edge(to).exit();
+    utils::Position entryPos = entry.position();
+    utils::Position exitPos = exit.position();
 
-    utils::Vector2 movementDirection = toPos - fromPos;
-    utils::Vector2 fromDirection =
-        utils::Vector2::fromAngle(fromEdge.entry().heading());
+    utils::Vector2 movementDirection = entryPos - exitPos;
 
-    // fallback - try getting a direction to a lane entry offset by unit vector.
+    // fallback - assume u-turn
     if (movementDirection.isZero()) {
-        // utils::Vector2 perpendicular = utils::Vector2::fromAngle(
-        //     toEdge.exit().heading() - std::numbers::pi / 2.0);
-        // movementDirection = (toPos + perpendicular) - fromPos;
         return -std::numbers::pi;
     }
 
-    return fromDirection.angleTo(movementDirection);
+    return utils::Vector2::fromAngle(entry.heading()).angleTo(movementDirection);
 }
 
 bool validLaneRange(const LaneRange& lr, size_t exitLaneCount) {
@@ -93,12 +88,13 @@ MovementStructure::Builder& MovementStructure::Builder::addMovement(
     auto pos =
         std::lower_bound(orderedIds.begin(), orderedIds.end(), newHeading,
                          [this](MovementId id, double heading) {
-                             return movements_.at(id).heading() < heading;
+                             const Movement& m = movements_.at(id);
+                             return edgeToEdgeHeading(network_, m.fromEdge(),
+                                                      m.toEdge()) < heading;
                          });
 
     MovementId newId = movementIdGen_.next(nodeId_);
-    movements_.emplace(newId,
-                       Movement(from, laneRange, to, newHeading, geometrySpec));
+    movements_.emplace(newId, Movement(from, laneRange, to, geometrySpec));
     orderedIds.emplace(pos, newId);
 
     return *this;
@@ -109,13 +105,7 @@ MovementStructure MovementStructure::Builder::build() {
         if (!validLaneUtilization(movements,
                                   network_.edge(edgeId).entry().laneCount())) {
             qWarning() << "WARNING: Movement from edge" << edgeId
-                       << "has following headings: ";
-            int i = 0;
-            for (const auto& m : movements) {
-                qWarning() << "Movement" << i
-                           << "heading:" << movements_.at(m).heading();
-                i++;
-            }
+                       << "has invalid lane utilization.";
             std::ostringstream msg;
             msg << "In movement structure at node " << nodeId_ << " from "
                 << edgeId << " not all, or too many lanes are used.";

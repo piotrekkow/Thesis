@@ -250,9 +250,9 @@ bool MatrixFactory::isSimultaneousProceedPermitted(SearchContext ctx,
         // c2) dowolny strumień pieszy i dowolny strumień kolizyjny z
         // wyjątkiem strumienia pojazdów sterowanych sygnałem dopuszczającym
         // skręcanie w kierunku wskazanym strzałką,
-        if (ctx.cSg.type() != SignalGroup::Type::CONDITIONAL_ARROW_S ||
-            ctx.eSg.type() != SignalGroup::Type::CONDITIONAL_ARROW_S)
-            return false;
+        if (ctx.cSg.type() == SignalGroup::Type::CONDITIONAL_ARROW_S ||
+            ctx.eSg.type() == SignalGroup::Type::CONDITIONAL_ARROW_S)
+            return true;
     }
 
     // d) dowolny strumień rowerowy i dowolny strumień
