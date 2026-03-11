@@ -101,6 +101,9 @@ char tagChar() {
         name.remove_prefix(1);
     }
 
+    if (name == "EntryLaneTag") return 'l';
+    if (name == "ExitLaneTag") return 'l';
+
     char c = name[0];
     if (c >= 'A' && c <= 'Z') {
         c = c - 'A' + 'a';
@@ -179,4 +182,4 @@ using CrossingId = Id<CrossingTag, NodeId>;
 using MovementId = Id<MovementTag, NodeId>;
 using SignalGroupId = Id<SignalGroupTag, IntersectionId>;
 using EntryLaneId = Id<EntryLaneTag, EdgeId>;
-using ExitLaneId  = Id<ExitLaneTag, EdgeId>;
+using ExitLaneId = Id<ExitLaneTag, EdgeId>;

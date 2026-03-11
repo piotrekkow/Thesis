@@ -16,6 +16,8 @@ struct Vector2 {
     double dot(Vector2 v) const;
     double cross(Vector2 v) const;
     double angle() const;
+    // Returns signed angle from this → v: positive = CCW (left in y-up math coords).
+    // In y-down screen coords, right turns produce positive values — negate if needed.
     double angleTo(Vector2 v) const;
     Vector2 rotate(double radians) const;
 

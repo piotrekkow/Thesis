@@ -4,39 +4,17 @@
 #include <qlogging.h>
 
 #include <algorithm>
-#include <numbers>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
 
 #include "network.h"
-#include "position.h"
+#include "network_utils.h"
 #include "topology/edge.h"
 #include "topology/lane_group.h"
 #include "topology/node.h"
-#include "vector2.h"
 
 namespace topology {
-
-namespace {
-
-double edgeToEdgeHeading(Network& network, EdgeId from, EdgeId to) {
-    const auto& entry = network.edge(from).entry();
-    const auto& exit = network.edge(to).exit();
-    utils::Position entryPos = entry.position();
-    utils::Position exitPos = exit.position();
-
-    utils::Vector2 movementDirection = entryPos - exitPos;
-
-    // fallback - assume u-turn
-    if (movementDirection.isZero()) {
-        return -std::numbers::pi;
-    }
-
-    return utils::Vector2::fromAngle(entry.heading()).angleTo(movementDirection);
-}
-
-}  // namespace
 
 MovementStructure::Builder::Builder(Network& network, NodeId nodeId)
     : network_(network), nodeId_(nodeId) {}
@@ -80,36 +58,53 @@ MovementStructure::Builder& MovementStructure::Builder::addMovement(
         }
     }
 
-    double newHeading = edgeToEdgeHeading(network_, from, to);
+    double newAngle = odAngle(network_, from, to);
 
-    auto pos =
-        std::lower_bound(orderedIds.begin(), orderedIds.end(), newHeading,
-                         [this](MovementId id, double heading) {
-                             const Movement& m = movements_.at(id);
-                             return edgeToEdgeHeading(network_, m.fromEdge(),
-                                                      m.toEdge()) < heading;
-                         });
+    auto pos = std::lower_bound(orderedIds.begin(), orderedIds.end(), newAngle,
+                                [this](MovementId id, double angle) {
+                                    const Movement& m = movements_.at(id);
+                                    return odAngle(network_, m.fromEdge(),
+                                                   m.toEdge()) > angle;
+                                });
 
     MovementId newId = movementIdGen_.next(nodeId_);
     const auto& exitGroup = network_.edge(to).exit();
     std::vector<ExitLaneId> exitLanes(exitGroup.laneIds().begin(),
                                       exitGroup.laneIds().end());
-    movements_.emplace(
-        newId, Movement(from, std::move(lanes), to, std::move(exitLanes), geometrySpec));
+    movements_.emplace(newId, Movement(from, std::move(lanes), to,
+                                       std::move(exitLanes), geometrySpec));
     orderedIds.emplace(pos, newId);
 
     return *this;
 }
 
 MovementStructure MovementStructure::Builder::build() {
+    qDebug().noquote().nospace()
+        << "###\nBuilding movements at " << nodeId_ << ":\n";
     for (const auto& [edgeId, movements] : movementsByEdge_) {
+        std::ostringstream msg;
+        msg << "layout " << edgeId << ":\n";
+        for (const auto& m : movements) {
+            msg << "to:" << movements_.at(m).toEdge() << ", ";
+            auto a = odAngle(network_, movements_.at(m).fromEdge(),
+                             movements_.at(m).toEdge());
+
+            auto dir = odDirection(a);
+            if (dir == Direction::UTURN) msg << "uturn";
+            if (dir == Direction::LEFT) msg << "left";
+            if (dir == Direction::THROUGH) msg << "through";
+            if (dir == Direction::RIGHT) msg << "right";
+            msg << ", @" << a << ", lanes: ";
+            for (const auto lId : movements_.at(m).entryLanes()) {
+                msg << lId << '/';
+            }
+            msg << '\n';
+        }
+        qDebug().noquote() << QString::fromStdString(msg.str());
         if (!validLaneUtilization(movements, edgeId)) {
-            qWarning() << "WARNING: Movement from edge" << edgeId
-                       << "has invalid lane utilization.";
-            std::ostringstream msg;
-            msg << "In movement structure at node " << nodeId_ << " from "
-                << edgeId << " not all, or too many lanes are used.";
-            throw std::logic_error(msg.str());
+            throw std::logic_error(
+                "Not all, too many or wrong order of lane usage in this "
+                "layout");
         }
     }
     return MovementStructure(std::move(movements_),
@@ -173,12 +168,13 @@ bool MovementStructure::Builder::validLaneUtilization(
             }
             firstMovement = false;
         } else if (firstIdx != currentMaxIdx && firstIdx != currentMaxIdx + 1) {
-            qWarning() << "WARNING: Movements are not contiguous. Invalid at "
-                          "movement index"
-                       << i << "from the left, where lane range starts from"
-                       << firstIdx << "but lane" << currentMaxIdx
-                       << "was already reached during checks of previous "
-                          "movements.";
+            qWarning()
+                << "WARNING" << movementId
+                << ": Movements are not contiguous.Invalid at movement index"
+                << i << "from the left, where lane range starts from"
+                << firstIdx << "but lane" << currentMaxIdx
+                << "was already reached during checks of previous "
+                   "movements.";
             return false;
         }
         currentMaxIdx = entryGroup.indexOf(mLanes.back());

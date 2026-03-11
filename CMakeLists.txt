@@ -27,6 +27,8 @@ add_executable(Thesis
     src/core/intersection.cpp
     src/core/id.h
     src/core/id_generator.h
+    src/core/network_utils.h
+    src/core/network_utils.cpp
 
     src/core/topology/node.h
     src/core/topology/node.cpp
@@ -94,6 +96,13 @@ add_executable(Thesis
 
     src/core/constraints/intergreen_constraints.h
     src/core/constraints/signal_constraints.h 
+
+    src/core/demand/demand.h
+    src/core/demand/od_pair.h
+    src/core/demand/intersection_demand_schedule.h
+    src/core/demand/intersection_demand_schedule.cpp
+    src/core/demand/demand_model.h
+    src/core/demand/demand_model.cpp
 )
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -123,6 +132,7 @@ target_include_directories(Thesis PRIVATE
     ${CMAKE_SOURCE_DIR}/src/core/control
     ${CMAKE_SOURCE_DIR}/src/core/control/signal_group
     ${CMAKE_SOURCE_DIR}/src/core/constraints
+    ${CMAKE_SOURCE_DIR}/src/core/demand
 )
 
 if(WIN32)

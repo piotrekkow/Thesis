@@ -16,27 +16,34 @@ Network::Network() {
     auto i3 = createIntersection();
     auto i4 = createIntersection();
 
-    auto e12 = createTwoWayEdge(i1.second, {25, 20}, i2.second, {100, 70});
-    auto e13 = createTwoWayEdge(i1.second, {-25, -25}, i3.second, {-100, -100});
-    auto e14 = createTwoWayEdge(i1.second, {25, -25}, i4.second, {100, -100});
+    auto e01 = createTwoWayEdge(i1.second, {25, 20}, i2.second, {100, 70});
+    auto e23 = createTwoWayEdge(i1.second, {-25, -25}, i3.second, {-100, -100});
+    auto e45 = createTwoWayEdge(i1.second, {25, -25}, i4.second, {100, -100});
 
-    edge(e12.first).entry().createLanes(e12.first, 1);
-    edge(e12.first).exit().createLanes(e12.first, 2);
-    edge(e12.second).entry().createLanes(e12.second, 3);  // from
-    edge(e12.second).exit().createLanes(e12.second, 2);
-    edge(e13.first).entry().createLanes(e13.first, 1);
-    edge(e13.first).exit().createLanes(e13.first, 4);  // to
-    edge(e13.second).entry().createLanes(e13.second, 3);
-    edge(e13.second).exit().createLanes(e13.second, 2);
-    edge(e14.first).entry().createLanes(e14.first, 1);
-    edge(e14.first).exit().createLanes(e14.first, 2);  // to
-    edge(e14.second).entry().createLanes(e14.second, 3);
-    edge(e14.second).exit().createLanes(e14.second, 2);
+    auto e0 = e01.first;
+    auto e1 = e01.second;
+    auto e2 = e23.first;
+    auto e3 = e23.second;
+    auto e4 = e45.first;
+    auto e5 = e45.second;
+
+    edge(e0).entry().createLanes(e0, 1);
+    edge(e0).exit().createLanes(e0, 2);
+    edge(e1).entry().createLanes(e1, 3);  // from
+    edge(e1).exit().createLanes(e1, 2);
+    edge(e2).entry().createLanes(e2, 1);
+    edge(e2).exit().createLanes(e2, 4);  // to
+    edge(e3).entry().createLanes(e3, 3);
+    edge(e3).exit().createLanes(e3, 2);
+    edge(e4).entry().createLanes(e4, 1);
+    edge(e4).exit().createLanes(e4, 2);  // to
+    edge(e5).entry().createLanes(e5, 3);
+    edge(e5).exit().createLanes(e5, 2);
 
     // Capture entry LaneGroups to look up LaneIds by index
-    const auto& eg12s = edge(e12.second).entry();
-    const auto& eg13s = edge(e13.second).entry();
-    const auto& eg14s = edge(e14.second).entry();
+    const auto& ege1 = edge(e1).entry();
+    const auto& ege3 = edge(e3).entry();
+    const auto& ege5 = edge(e5).entry();
 
     auto& n1 = node(i1.second);
     auto builder1 = n1.createMovementBuilder(*this);
@@ -46,40 +53,36 @@ Network::Network() {
 
     // east
     builder1
-        .addMovement(e12.second, e13.first,
-                     {eg12s.laneId(0), eg12s.laneId(1)},
+        // 0K (edge 1)
+        .addMovement(e1, e0, {ege1.laneId(0), ege1.laneId(1)},
                      topology::MovementGeometrySpec::cubicBezier(
                          offset1, offset1, coffset, coffset))
-        .addMovement(e12.second, e14.first,
-                     {eg12s.laneId(1), eg12s.laneId(2)},
-                     topology::MovementGeometrySpec::quadraticBezier(offset1, offset1))
-        .addMovement(e12.second, e12.first,
-                     {eg12s.laneId(0)},
+        .addMovement(e1, e2, {ege1.laneId(1), ege1.laneId(2)},
                      topology::MovementGeometrySpec::cubicBezier(
                          offset1, offset1, coffset, coffset))
+        .addMovement(
+            e1, e4, {ege1.laneId(2)},
+            topology::MovementGeometrySpec::quadraticBezier(offset1, offset1))
 
-        // 1K
-        .addMovement(e13.second, e13.first,
-                     {eg13s.laneId(0)},
+        // 1K (edge 3)
+        .addMovement(e3, e2, {ege3.laneId(0)},
                      topology::MovementGeometrySpec::cubicBezier(
                          offset1, offset1, coffset, coffset))
-        .addMovement(e13.second, e14.first,
-                     {eg13s.laneId(1)},
-                     topology::MovementGeometrySpec::quadraticBezier(offset1, offset1))
-        .addMovement(e13.second, e12.first,
-                     {eg13s.laneId(2)},
+        .addMovement(e3, e4, {ege3.laneId(1)},
                      topology::MovementGeometrySpec::cubicBezier(
                          offset1, offset1, coffset, coffset))
+        .addMovement(
+            e3, e0, {ege3.laneId(2)},
+            topology::MovementGeometrySpec::quadraticBezier(offset1, offset1))
 
-        // 2K
-        .addMovement(e14.second, e14.first,
-                     {eg14s.laneId(0)},
+        // 2K (edge 5)
+        .addMovement(e5, e4, {ege5.laneId(0)},
                      topology::MovementGeometrySpec::cubicBezier())
-        .addMovement(e14.second, e12.first,
-                     {eg14s.laneId(1), eg14s.laneId(2)},
-                     topology::MovementGeometrySpec::quadraticBezier(offset1, offset1));
+        .addMovement(
+            e5, e0, {ege5.laneId(1), ege5.laneId(2)},
+            topology::MovementGeometrySpec::quadraticBezier(offset1, offset1));
     // .addMovement(
-    //     e14.second, e13.first, {eg14s.laneId(2)},
+    //     e5, e2, {ege5.laneId(2)},
     //     topology::MovementGeometrySpec::quadraticBezier(offset1, offset1));
 
     n1.setMovementStructure(builder1.build());
@@ -92,20 +95,20 @@ Network::Network() {
 
     i1c.createSignalGroup<MovementId>(
         SignalGroup::Type::GENERAL_K,
-        {n1.movementStructure()->movementsByEdge(e12.second).at(0),
-         n1.movementStructure()->movementsByEdge(e12.second).at(1),
-         n1.movementStructure()->movementsByEdge(e12.second).at(2)});
+        {n1.movementStructure()->movementsByEdge(e1).at(0),
+         n1.movementStructure()->movementsByEdge(e1).at(1),
+         n1.movementStructure()->movementsByEdge(e1).at(2)});
 
     i1c.createSignalGroup<MovementId>(
         SignalGroup::Type::GENERAL_K,
-        {n1.movementStructure()->movementsByEdge(e13.second).at(0),
-         n1.movementStructure()->movementsByEdge(e13.second).at(1),
-         n1.movementStructure()->movementsByEdge(e13.second).at(2)});
+        {n1.movementStructure()->movementsByEdge(e3).at(0),
+         n1.movementStructure()->movementsByEdge(e3).at(1),
+         n1.movementStructure()->movementsByEdge(e3).at(2)});
 
     i1c.createSignalGroup<MovementId>(
         SignalGroup::Type::GENERAL_K,
-        {n1.movementStructure()->movementsByEdge(e14.second).at(0),
-         n1.movementStructure()->movementsByEdge(e14.second).at(1)/*,
+        {n1.movementStructure()->movementsByEdge(e5).at(0),
+         n1.movementStructure()->movementsByEdge(e5).at(1)/*,
          n1.movementStructure()->movementsByEdge(e14.second).at(2)*/});
 
     i1c.createSignalGroup<CrossingId>(SignalGroup::Type::PEDESTRIAN_P, {n1c1});
@@ -126,13 +129,13 @@ Network::Network() {
     edge(e37).exit().createLanes(e37, 2);
     edge(e36).exit().createLanes(e36, 2);
 
-    const auto& eg13f = edge(e13.first).entry();
+    const auto& eg13f = edge(e2).entry();
     const auto& eg53 = edge(e53).entry();
 
     auto& n3 = node(i3.second);
     auto builder3 = n3.createMovementBuilder(*this);
-    builder3.addMovement(e13.first, e36, {eg13f.laneId(0)})
-            .addMovement(e53, e37, {eg53.laneId(0)});
+    builder3.addMovement(e2, e36, {eg13f.laneId(0)})
+        .addMovement(e53, e37, {eg53.laneId(0)});
     n3.setMovementStructure(builder3.build());
 }
 
